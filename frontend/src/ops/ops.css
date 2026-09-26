@@ -380,3 +380,4 @@ tr.off td { color: var(--muted); }
 .miss-report .fulltext { max-height: 220px; overflow: auto; }
 .miss-report .row > .small:first-child { overflow-wrap: anywhere; min-width: 0; }
 .pii-mark.static { cursor: text; }
+.kev-queue { display: inline-block; padding: 1px 8px; border-radius: 999px; background: var(--warn-soft); color: var(--warn); font-weight: 600; }

@@ -60,7 +60,7 @@ ROUTE_CHANNELS: Final[dict[str, str]] = {
 ESCALATION_CHANNEL: Final = "#cs-エスカレーション"
 INBOUND_CHANNEL: Final = "#お問い合わせ窓口"
 # Kev は CPU で動くため 1 本ずつ、Jev は並列にしてもコストは同じ
-_KEV_CONCURRENCY: Final = 1
+KEV_CONCURRENCY: Final = 1
 # 同時に処理する件の数（ふだん・高速）。Jev の同時の問い合わせは、高速のときの件数まで許す
 WORKERS: Final = 3
 FAST_WORKERS: Final = 16
@@ -241,7 +241,7 @@ def priority_score(answers: Mapping[str, AnswerView], weights: Mapping[str, floa
 class Pipeline:
     store: Store
     backends: Mapping[target.Target, BackendLike]
-    kev_slots: asyncio.Semaphore = field(default_factory=lambda: asyncio.Semaphore(_KEV_CONCURRENCY))
+    kev_slots: asyncio.Semaphore = field(default_factory=lambda: asyncio.Semaphore(KEV_CONCURRENCY))
     jev_slots: asyncio.Semaphore = field(default_factory=lambda: asyncio.Semaphore(_JEV_CONCURRENCY))
     wake: asyncio.Event = field(default_factory=asyncio.Event)
 
@@ -456,7 +456,9 @@ class Pipeline:
         if assignee_q is not None:
             questions = {**questions, oq.ASSIGNEE_ID: assignee_q}
         try:
-            views, _, cost, model = await self._ask(g.target, "ops-kev-reference", oq.classify_state(text), questions)
+            views, latency, cost, model = await self._ask(
+                g.target, "ops-kev-reference", oq.classify_state(text), questions
+            )
         except Exception as e:  # Kev が止まっていても、人に回すことは変わらない
             log.exception("件 %s の参考の判定に失敗しました", item.id)
             self.store.add_event(
@@ -482,6 +484,7 @@ class Pipeline:
             actor_of(g.target),
             f"参考（{TARGET_NAMES[g.target]}）: {category_label(ref.category)}（{ref.confidence or 0:.2f}）／ 担当の推定: "
             f"{self.staff_name(suggestion, settings) if suggestion else 'なし'}。自動では振り分けません",
+            {"latency_ms": round(latency, 1)},
         )
 
     async def _classify_and_route(
@@ -513,6 +516,7 @@ class Pipeline:
                     "classify",
                     "kev",
                     f"Kev で確定: {category_label(str(views['category'].prediction))}（{conf:.2f} ≥ {kf.threshold:.2f}）。{TARGET_NAMES[chosen]} は呼びません",
+                    {"latency_ms": round(latency, 1)},
                 )
             else:
                 self.store.add_event(
@@ -520,6 +524,7 @@ class Pipeline:
                     "classify",
                     "kev",
                     f"Kev の確信度 {conf:.2f} < {kf.threshold:.2f} のため {TARGET_NAMES[chosen]} に回します",
+                    {"latency_ms": round(latency, 1)},
                 )
         if result is None:
             result = await self._ask(chosen, "ops-classify", state, questions)

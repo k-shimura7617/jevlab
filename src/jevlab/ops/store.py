@@ -286,6 +286,10 @@ class Store:
             row = self._db.execute("SELECT MAX(id) AS m FROM events").fetchone()
         return int(row["m"] or 0)
 
+    def recent_events_by(self, actor: str, limit: int = 20) -> list[Event]:
+        """主体ごとの最近の経過（新しい順）。Kev の所要時間の目安に使う。"""
+        return self._events("SELECT * FROM events WHERE actor = ? ORDER BY id DESC LIMIT ?", (actor, limit))
+
     def recent_events(self, limit: int = 30, after: int = 0) -> list[Event]:
         return self._events("SELECT * FROM events WHERE id > ? ORDER BY id DESC LIMIT ?", (after, limit))
 

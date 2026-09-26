@@ -2,7 +2,7 @@
 import type { CSSProperties, ReactNode } from 'react'
 import { Link } from 'react-router'
 import { pct, usd } from '../format'
-import type { Item, Meta, OpsEvent, Span, Status } from './api'
+import type { Item, KevQueue, Meta, OpsEvent, Span, Status } from './api'
 import {
   ACTOR_LABELS,
   categoryColor,
@@ -303,6 +303,20 @@ export function SaveState({ status, error }: { status: string | null; error: str
   return (
     <span className="muted small" data-testid="save-state">
       {status ?? '自動保存'}
+    </span>
+  )
+}
+
+/** 秒数を「約 N 秒／約 N 分」に丸める（見込みなので細かく出さない）。 */
+const aboutText = (sec: number) => (sec < 60 ? `約 ${Math.max(1, Math.round(sec))} 秒` : `約 ${Math.round(sec / 60)} 分`)
+
+/** Kev の処理待ちと見込み時間。待ちがなければ何も出さない。 */
+export function KevQueueNote({ queue, available }: { queue: KevQueue | null | undefined; available: boolean }) {
+  if (!queue || queue.waiting === 0) return null
+  const eta = !available ? '止まっています' : queue.eta_s !== null ? `${aboutText(queue.eta_s)}（目安）` : '見込みは計測中'
+  return (
+    <span className="kev-queue small" data-testid="kev-queue" title={queue.median_ms !== null ? `1 件あたり ${(queue.median_ms / 1000).toFixed(1)} 秒（最近 ${queue.samples} 回の中央値）` : undefined}>
+      Kev 待ち {queue.waiting} 件・{eta}
     </span>
   )
 }

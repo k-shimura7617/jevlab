@@ -16,6 +16,9 @@ from jevlab.apps.mail.questions import CATEGORY_LABELS
 from jevlab.core import kev_health, target
 from jevlab.core.generator import ClaudeModel, GenerateRequest, GenerationError, make_generator
 from jevlab.ops import importers, misses, pii_eval, scope_draft, tuning
+from jevlab.ops.kev_queue import SAMPLES as KEV_SAMPLES
+from jevlab.ops.kev_queue import KevQueue
+from jevlab.ops.kev_queue import summarize as summarize_kev_queue
 from jevlab.ops.models import (
     CHANNEL_LABELS,
     STATUSES,
@@ -34,6 +37,7 @@ from jevlab.ops.pipeline import (
     EXAMPLE_DECISIONS,
     FAST_WORKERS,
     INBOUND_CHANNEL,
+    KEV_CONCURRENCY,
     ROUTE_CHANNELS,
     Pipeline,
     category_label,
@@ -191,6 +195,8 @@ class Overview(BaseModel):
     recent: list[Event]
     # 運用の設定が Kev を使うときだけ確認する（使わなければ None）。画面の「Kev に接続できません」に使う
     kev: KevHealth | None = None
+    # Kev の処理待ちと見込み（Kev を使う設定のときだけ）
+    kev_queue: KevQueue | None = None
 
 
 def _accuracy(items: list[Item], final: bool) -> Accuracy:
@@ -241,6 +247,14 @@ async def overview(pipeline: PipelineDep) -> Overview:
         simulator={**settings.simulator.model_dump(), "total": len(demo_inbox()), "fast_workers": FAST_WORKERS},
         recent=store.recent_events(40),
         kev=await _kev_health(uses) if (uses := kev_uses(settings)) else None,
+        kev_queue=summarize_kev_queue(
+            store.items(["queued", "processing"], limit=10_000),
+            store.recent_events_by("kev", KEV_SAMPLES),
+            settings,
+            KEV_CONCURRENCY,
+        )
+        if uses
+        else None,
     )
 
 
