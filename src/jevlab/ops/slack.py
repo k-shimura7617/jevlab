@@ -306,9 +306,7 @@ def message_text(post: Post) -> str:
 
 
 def post_text(post: Post, item: Item | None) -> str:
-    """実際の Slack に流す文。ガードレールを通していない件は、件名に個人情報が残りうるので番号だけにする。"""
-    if item is not None and item.pii_decision == "skipped":
-        return f"*{post.author}*\n{item.id}（ガードレール無効のため件名は載せません）"
+    """実際の Slack に流す文。見出しは投稿を作るときに個人情報の候補を伏せてある（ガードレール無効の件も規則で伏せる）。"""
     return message_text(post)
 
 

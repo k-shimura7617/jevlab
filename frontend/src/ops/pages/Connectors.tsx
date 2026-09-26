@@ -298,12 +298,10 @@ function FileImport() {
   const [busy, setBusy] = useState(false)
   const [progress, setProgress] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
-  const [done, setDone] = useState<string | null>(null)
   const labels = meta?.categories ?? {}
 
   const load = (f: File) => {
     setError(null)
-    setDone(null)
     setParsed(null)
     if (f.size > MAX_FILE_MB * 1024 * 1024) {
       setError(`${MAX_FILE_MB}MB を超えるファイルは読めません（期間やラベルで分けて書き出してください）`)
@@ -352,6 +350,8 @@ function FileImport() {
 
   const submit = async () => {
     if (!parsed) return
+    const how = backfill ? '完了済みの問い合わせとして（Jev で判定・課金あり）' : ''
+    if (!window.confirm(`${valid.length} 件を${how}取り込みますか？`)) return
     setBusy(true)
     setError(null)
     const ids: string[] = []
@@ -361,9 +361,10 @@ function FileImport() {
         const res = await ops.importRows(fileName, parsed.channel, backfill, valid.slice(i, i + CHUNK))
         ids.push(...res.ids)
       }
-      setDone(`${ids.length} 件を取り込みました（${ids[0]} 〜 ${ids.at(-1)}）`)
       setParsed(null)
       refresh()
+      // 取り込んだ件が処理される様子を、ダッシュボードの処理フローで見る
+      navigate('/ops#flow')
     } catch (e: unknown) {
       setError(`${ids.length} 件まで取り込んだところで失敗しました: ${errorMessage(e)}`)
     } finally {
@@ -509,14 +510,6 @@ function FileImport() {
             {rows.length !== valid.length && <span className="muted small">本文が空の {rows.length - valid.length} 件は取り込みません</span>}
           </div>
         </>
-      )}
-      {done && (
-        <div className="done-box">
-          {done}{' '}
-          <button type="button" className="link-btn" onClick={() => navigate(backfill ? '/ops/tuning' : '/ops/inbox')}>
-            {backfill ? '閾値の調整で見る' : '受付箱で見る'}
-          </button>
-        </div>
       )}
       {error && <div className="error">{error}</div>}
     </section>
