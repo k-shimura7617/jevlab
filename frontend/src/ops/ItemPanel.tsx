@@ -250,6 +250,7 @@ export function ItemPanel({ id, onChanged, here }: { id: string; onChanged?: () 
           <CategoryTag meta={meta} item={item} />
           <PriorityBadge item={item} weights={weights} />
           {item.backfill && <span className="audit-flag">試算用</span>}
+          {item.auto_closed && <span className="audit-flag">自動で完了</span>}
           {item.audit && <span className="audit-flag">抜き取り{item.audit_result ? `（${item.audit_result === 'ok' ? '問題なし' : '修正'}）` : ''}</span>}
         </div>
         <h2>{titleOf(item)}</h2>

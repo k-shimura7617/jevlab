@@ -601,6 +601,13 @@ class SlackConnector:
         if cursor is None or self._backing_off():
             return
         for event in store.events_after(cursor):
+            if event.kind == "close" and event.data.get("auto") is True:
+                # 自動で完了にした件は、スレッドに書き足さず、投稿に ✅ だけ付ける
+                auto_item = self._item(event.item_id)
+                if auto_item is not None:
+                    await self._mark_done(auto_item)
+                store.put_meta(_EVENT_CURSOR, str(event.id))
+                continue
             text = self._follow_text(event, settings)
             item = self._item(event.item_id) if text is not None else None
             if text is not None and item is not None and event.kind == "close":

@@ -593,6 +593,9 @@ class Pipeline:
                     self.store.add_event(
                         item.id, "audit", "system", f"抜き取り確認の対象に選ばれました（{settings.audit_rate:.0%}）"
                     )
+                elif settings.auto_closes(item.category):
+                    # 抜き取り確認に選ばれた件は、人が見るまで完了にしない
+                    self._auto_close(item, settings)
             case "review":
                 self.store.add_event(item.id, "review", "system", f"確認待ちへ（{reason}）")
             case "escalated":
@@ -605,6 +608,18 @@ class Pipeline:
                     item.id,
                     item.fields,
                 )
+
+    def _auto_close(self, item: Item, settings: Settings) -> None:
+        """返信のいらない分類（お礼など）を、自動で振り分けたまま完了にする。担当は割り当てない。"""
+        self.store.update(
+            item.id,
+            lambda i: i.model_copy(update={"status": "closed", "auto_closed": True, "closed_at": now_iso()}),
+        )
+        label = category_label(item.category, settings)
+        # auto: Slack ではスレッドに書き足さず、投稿に ✅ だけ付ける
+        self.store.add_event(
+            item.id, "close", "system", f"返信のいらない分類（{label}）のため自動で完了", {"auto": True}
+        )
 
     # ---- 担当者の推定と割り当て ----
 

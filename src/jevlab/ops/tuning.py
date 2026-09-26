@@ -79,7 +79,7 @@ def labeled_items(items: Iterable[Item], source: TruthSource, version: str | Non
         else:
             # 人が確認した件だけを正解として使う（自動で振り分けて誰も見ていない件は含めない）
             human_checked = (
-                item.status == "closed"
+                (item.status == "closed" and not item.auto_closed)
                 or item.audit_result is not None
                 or (item.first_route == "review" and item.status == "routed")
             )
