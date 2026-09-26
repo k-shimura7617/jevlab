@@ -4,7 +4,7 @@ import { errorMessage } from '../../api'
 import { Hint } from '../../components/hint'
 import { pct } from '../../format'
 import { Page, useTitle } from '../../shell'
-import { ops, type Curve, type Settings } from '../api'
+import { ops, type Curve, type PiiMatrix, type Settings } from '../api'
 import { useOps, usePolling } from '../state'
 
 const W = 520
@@ -45,6 +45,61 @@ function CurveChart({ curve, targetError, current }: { curve: Curve; targetError
       <polyline points={line((p) => p.auto_rate)} className="auto-line" />
       <polyline points={line((p) => p.error_rate)} className="err-line" />
     </svg>
+  )
+}
+
+/** 2 × 2 の混同行列（行: モデル、列: 人）。 */
+function PiiMatrixTable({ title, m, testId }: { title: string; m: PiiMatrix; testId: string }) {
+  const cell = (n: number, ok: boolean) => (
+    <td className="cell" style={n ? { background: `color-mix(in srgb, var(--${ok ? 'ok' : 'ng'}) 18%, transparent)` } : undefined}>
+      {n || <span className="muted">·</span>}
+    </td>
+  )
+  return (
+    <table className="confusion" data-testid={testId}>
+      <caption className="small">{title}</caption>
+      <thead>
+        <tr>
+          <th className="axis">モデル ＼ 人</th>
+          <th>個人情報</th>
+          <th>でない</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <th>個人情報</th>
+          {cell(m.tp, true)}
+          {cell(m.fp, false)}
+        </tr>
+        <tr>
+          <th>でない</th>
+          {cell(m.fn, false)}
+          {cell(m.tn, true)}
+        </tr>
+      </tbody>
+    </table>
+  )
+}
+
+/** 個人情報の判定（Kev）と、人の確認の突き合わせ。 */
+function PiiEvalSection() {
+  const res = usePolling(ops.piiEval, 5000)
+  const e = res.data
+  return (
+    <section className="panel" data-testid="pii-eval">
+      <div className="panel-head">
+        <h2>個人情報の判定（Kev）</h2>
+        {e && <span className="muted small">人が確認した {e.items} 件</span>}
+      </div>
+      {res.error && <div className="error small">{res.error}</div>}
+      {e && e.items === 0 && <p className="muted small">まだありません</p>}
+      {e && e.items > 0 && (
+        <div className="summary-grid">
+          <PiiMatrixTable title="候補（氏名など）" m={e.candidates} testId="pii-eval-candidates" />
+          <PiiMatrixTable title={`候補外の残り（${e.leftover_threshold.toFixed(2)} 以上で疑う）`} m={e.leftover} testId="pii-eval-leftover" />
+        </div>
+      )}
+    </section>
   )
 }
 
@@ -239,6 +294,7 @@ export function Tuning() {
           </>
         )}
       </section>
+      <PiiEvalSection />
       <MissSection labels={meta?.pii_types ?? {}} />
     </Page>
   )

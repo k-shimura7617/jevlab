@@ -67,6 +67,10 @@
    - Slack のすべての投稿に、件の詳細（`/ops/items/{番号}`）へのリンクを付けた。
    - 振り分けた件も、件の詳細で「対応完了にする」ができる。最終の分類は、触らなければ「合っていた」、切り替えれば「修正した」として記録し、閾値の調整の正解に数える。
    - 完了すると、Slack の元の投稿のスレッドに返信し、✅ のリアクションを付ける（Bot Token Scopes に `reactions:write` が必要）。
+7. **画面の手直しと、個人情報の混同行列**
+   - 個人情報の確認の「確認対象」を、種類の一覧だけにした。閾値のスライダーを 0.05 刻みにした（抜き取る割合は 0.01 刻み）。
+   - 閾値の調整に「個人情報の判定（Kev）」の混同行列を足した（候補ごと・候補外の残り。人が確認した件だけ）。
+   - 利用者の要望: 画面の説明も応答も短く。例・補足の説明は付けない。
 
 ---
 
@@ -155,6 +159,7 @@ FastAPI（src/jevlab/web.py、127.0.0.1:8000）
 | `src/jevlab/ops/simulator.py` | デモの受信シミュレータ（`demo_inbox.jsonl` の 64 件を順に流す） |
 | `src/jevlab/ops/tuning.py` | しきい値ごとの自動処理率と誤り率の曲線、しきい値の提案 |
 | `src/jevlab/ops/misses.py` | 検知漏れの報告の集計と、「候補外に残っている可能性」の閾値の目安 |
+| `src/jevlab/ops/pii_eval.py` | 個人情報の判定（Kev）の混同行列（人が確認した件だけ） |
 | `src/jevlab/ops/sla.py` | エスカレーションの対応目安（営業時間で数える） |
 | `src/jevlab/ops/slack.py` | 実際の Slack とのつなぎ込み（Socket Mode。送信・スレッド・知らせ・受信） |
 | `src/jevlab/ops/api.py` | 運用の API（`/api/ops/...`） |
@@ -164,7 +169,7 @@ FastAPI（src/jevlab/web.py、127.0.0.1:8000）
 | `frontend/src/pages/` | 評価ダッシュボード（一覧・ライブ評価・単発判定と履歴） |
 | `frontend/src/ops/` | 運用ダッシュボード（`pages/` に各画面、`state.tsx` に定期取得、`components.tsx` に共通部品） |
 | `frontend/src/tools/` | 言い方チェック |
-| `tests/` | pytest（2026-09-26 時点で 180 件） |
+| `tests/` | pytest（2026-09-26 時点で 182 件） |
 | `scripts/serve.sh` / `start.sh` / `dev.sh` | 起動（ビルド版・ビルドして起動・開発用）。`.env` があれば `uv run --env-file .env` で読む |
 | `scripts/check_env.py` | `.env` の `TYPESAFE_API_KEY` を、値を表示せずに検証する（疎通の確認は Noul 1 問） |
 | `scripts/build_docs.py` | `docs/**/*.md` を `docs/html/` に書き出す |
@@ -252,7 +257,7 @@ cd frontend && npx tsc -b && npm run lint && npm run build
   - 閾値の調整（検知漏れの集計を含む）、設定（ガードの有効・規則だけ、判断が割れた件の扱い、対応目安）、ダッシュボード（流れ図・KPI・受信シミュレータ・経過）
   - 件の詳細からの検知漏れの報告
 - **ツール:** 言い方チェック（判定・目的の上書き・文ごとの見え方・Claude の書き換え案・書き換え後の再判定と比較）。
-- **テスト:** pytest 180 件（画面をビルドしていない環境では、画面の配信の 1 件が 503 で失敗する。5 章を参照）。
+- **テスト:** pytest 182 件（画面をビルドしていない環境では、画面の配信の 1 件が 503 で失敗する。5 章を参照）。
 
 ### 実測の記録
 - **Kev の個人情報検出（デモ 60 件）:** 検出 43・見落とし 3・誤検出 0。
