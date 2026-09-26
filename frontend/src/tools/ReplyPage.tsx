@@ -310,13 +310,6 @@ export function ReplyPage() {
         {rewrite && (
           <>
             <textarea aria-label="AI返信案" rows={7} value={fixed} onChange={(e) => setFixed(e.target.value)} />
-            {rewrite.changes.length > 0 && (
-              <ul className="small">
-                {rewrite.changes.map((c, i) => (
-                  <li key={i}>{c}</li>
-                ))}
-              </ul>
-            )}
             <div className="row">
               <button type="button" disabled={!fixed.trim()} onClick={() => setDraft(fixed.trim())}>
                 採用
