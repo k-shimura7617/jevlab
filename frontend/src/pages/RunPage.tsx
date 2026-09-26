@@ -34,6 +34,7 @@ import {
 } from '../runStore'
 import { ModeBadge, Page, targetStatus, useShell, useTitle } from '../shell'
 import { useAppData } from '../useAppData'
+import { FoldClose } from '../components/fold'
 
 // ---- 実行設定（ブラウザに保存し、次に開いたときも同じ設定にする） ----
 
@@ -203,6 +204,7 @@ function Summary({ info, report, total }: { info: AppInfo; report: EvalReport; t
       <details>
         <summary>ケース別（想定ラベル→予測）</summary>
         <CasesTable info={info} cases={report.cases} />
+        <FoldClose />
       </details>
     </section>
   )

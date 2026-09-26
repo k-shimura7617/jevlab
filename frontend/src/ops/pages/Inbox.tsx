@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { useSearchParams } from 'react-router'
 import { errorMessage } from '../../api'
 import { Page, useTitle } from '../../shell'
@@ -104,6 +104,7 @@ export function Inbox() {
   const [composing, setComposing] = useState(false)
   // 完了した件は既定で隠す（人の対応が要る件を見つけやすくするため）
   const [showClosed, setShowClosed] = useState(false)
+  const closedShownFor = useRef(new Set<string>())
   const list = usePolling(() => ops.items())
   const selected = params.get('id')
   const items = list.data ?? []
@@ -120,6 +121,13 @@ export function Inbox() {
       (!q || `${i.id} ${i.from_name} ${i.subject} ${i.body}`.includes(q)),
   )
   const select = (id: string | null) => setParams(id ? { id } : {}, { replace: true })
+  // リンク（Slack など）で完了した件を開いたときは、一覧にも出るよう「完了を表示」にする
+  const openedClosed = items.some((i) => i.id === selected && i.status === 'closed')
+  useEffect(() => {
+    if (!selected || !openedClosed || closedShownFor.current.has(selected)) return
+    closedShownFor.current.add(selected)
+    setShowClosed(true)
+  }, [selected, openedClosed])
   return (
     <Page wide crumbs={[{ label: '運用', to: '/ops' }, { label: '受付箱' }]}>
       <div className="panel-head">

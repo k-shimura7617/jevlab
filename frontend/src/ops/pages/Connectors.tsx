@@ -7,6 +7,7 @@ import { guessCategory, guessMapping, MAPPED_FIELDS, SAMPLE_CSV, toIsoDate, type
 import { useAutoSave } from '../autosave'
 import { SaveState } from '../components'
 import { useOps, usePolling } from '../state'
+import { FoldClose } from '../../components/fold'
 
 const CONNECTORS: { id: Channel; name: string; icon: string; real: string; desc: string }[] = [
   {
@@ -266,6 +267,7 @@ function SlackPanel() {
           <SlackPurge purge={st.purge} onStarted={status.reload} />
         </div>
       )}
+        <FoldClose />
       </details>
     </section>
   )

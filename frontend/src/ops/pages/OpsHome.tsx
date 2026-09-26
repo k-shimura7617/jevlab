@@ -7,6 +7,7 @@ import { ops } from '../api'
 import { costText, KevQueueNote, Kpi } from '../components'
 import { ACTOR_LABELS, clockTime } from '../format'
 import { useOps } from '../state'
+import { FoldClose } from '../../components/fold'
 
 const TARGET_NAMES = { custom: 'Kev', jev: 'Jev', mock: 'MOCK' } as const
 
@@ -161,6 +162,7 @@ function Scenario() {
           </li>
         ))}
       </ol>
+      <FoldClose />
     </details>
   )
 }
@@ -323,7 +325,7 @@ export function OpsHome() {
                 <li key={e.id} className={`actor-${e.actor}`} style={{ '--delay': '0s' } as CSSProperties}>
                   <span className="muted small">{clockTime(e.at)}</span>
                   <span className="actor">{ACTOR_LABELS[e.actor]}</span>
-                  <Link to={`/ops/items/${e.item_id}`}>{e.item_id}</Link>
+                  <Link to={`/ops/inbox?id=${encodeURIComponent(e.item_id)}`}>{e.item_id}</Link>
                   <span className="act-msg">{e.message}</span>
                 </li>
               ))}

@@ -319,12 +319,12 @@ def left_text(minutes: float) -> str:
 
 def link_text(item_id: str, settings: Settings) -> str:
     """件の詳細の画面へのリンク。"""
-    return f"<{settings.slack.app_url.rstrip('/')}/ops/items/{item_id}|画面で開く>"
+    return f"<{settings.slack.app_url.rstrip('/')}/ops/inbox?id={item_id}|画面で開く>"
 
 
 def link_marker(item_id: str) -> str:
     """親の投稿を Slack 側で探すときの目印（画面へのリンクの一部）。"""
-    return f"/ops/items/{item_id}|"
+    return f"/ops/inbox?id={item_id}|"
 
 
 def mention(member: StaffMember | None) -> str:

@@ -396,3 +396,5 @@ tr.off td { color: var(--muted); }
 /* 処理フローの進み具合は、シミュレータより長いバーにする */
 .flow-progress { margin: 0 0 8px; }
 .flow-progress .sim-progress { flex: 1 1 auto; max-width: 480px; height: 8px; }
+/* 折りたたみの下の「閉じる」 */
+.fold-close { display: flex; justify-content: flex-end; margin-top: 8px; }

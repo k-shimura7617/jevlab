@@ -9,6 +9,7 @@ import { elapsedLabel, staffName } from '../format'
 import { ItemPanel } from '../ItemPanel'
 import { useNow, useOps, usePolling } from '../state'
 import { sortItems, useWeights } from './Review'
+import { FoldClose } from '../../components/fold'
 
 // 対応の目安（受信からの経過）。これを超えたら赤く表示する
 /** 対応目安までの残り（営業時間）を短く書く。 */
@@ -289,6 +290,7 @@ export function Escalations() {
             <summary className="small">優先度の重み（並び順）</summary>
             <WeightSliders weights={weights} onChange={setWeights} />
             {weightError && <div className="error small">{weightError}</div>}
+            <FoldClose />
           </details>
           {list.error && <div className="error small">{list.error}</div>}
           <div className="item-list" data-testid="escalation-list">
