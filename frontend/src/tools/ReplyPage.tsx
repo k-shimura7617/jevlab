@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { Link, useSearchParams } from 'react-router'
 import { errorMessage } from '../api'
 import { pct, TARGET_SHORT, usd } from '../format'
@@ -100,6 +100,9 @@ export function ReplyPage() {
   const [draft, setDraft] = useState('')
   const [policy, setPolicy] = useState<string | null>(null)
   const [policyOpen, setPolicyOpen] = useState(false)
+  // 「この内容で返信」を、左の「判定する」と同じ高さに置くための位置（枠の上端から）
+  const judgeRef = useRef<HTMLButtonElement>(null)
+  const [sendTop, setSendTop] = useState<number | null>(null)
   // 運用の件から開いたときの件（判定した下書きで、その件にメールで返信する）
   const [item, setItem] = useState<Item | null>(null)
   const [busy, setBusy] = useState(false)
@@ -135,6 +138,16 @@ export function ReplyPage() {
       .catch((e: unknown) => setError(errorMessage(e)))
   }, [itemId])
 
+  useLayoutEffect(() => {
+    const measure = () => {
+      const btn = judgeRef.current
+      const panel = btn?.closest('.panel')
+      setSendTop(btn && panel ? btn.getBoundingClientRect().top - panel.getBoundingClientRect().top : null)
+    }
+    measure()
+    window.addEventListener('resize', measure)
+    return () => window.removeEventListener('resize', measure)
+  }, [judged])
   // 方針のモーダルは Esc でも閉じる
   useEffect(() => {
     if (!policyOpen) return
@@ -261,20 +274,7 @@ export function ReplyPage() {
             }}
           />
           <div className="row judge-row">
-            {item && canMail(item) && (
-              // 判定した下書きのまま（判定の後に書き換えていない）なら、その内容でメールソフトを開く
-              <a
-                className={`btn secondary${judged && !stale ? '' : ' disabled'}`}
-                href={judged && !stale ? replyHref(item, judged.draft) : undefined}
-                aria-disabled={!judged || stale}
-                title={judged && !stale ? undefined : '判定してから使えます'}
-                target="_blank"
-                rel="noopener noreferrer"
-              >
-                この内容で返信
-              </a>
-            )}
-            <button type="button" className="judge-btn" title="Ctrl+Enter" disabled={busy || !inquiry.trim() || !draft.trim() || !target} onClick={check}>
+            <button ref={judgeRef} type="button" className="judge-btn" title="Ctrl+Enter" disabled={busy || !inquiry.trim() || !draft.trim() || !target} onClick={check}>
               {busy ? '判定中…' : '判定する'}
             </button>
           </div>
@@ -314,6 +314,22 @@ export function ReplyPage() {
             </div>
             {stale && <p className="warn-text small">入力が判定したときから変わっています</p>}
             <CheckCards result={r} />
+            {item && canMail(item) && (
+              // 判定した下書きのまま（判定の後に書き換えていない）なら、その内容でメールソフトを開く。
+              // 広い画面では、左の「判定する」と同じ高さに置く
+              <div className="reply-send" style={sendTop === null ? undefined : { top: sendTop }}>
+                <a
+                  className={`btn judge-btn${stale ? ' disabled' : ''}`}
+                  href={stale ? undefined : replyHref(item, judged?.draft ?? '')}
+                  aria-disabled={stale}
+                  title={stale ? '判定し直してから使えます' : undefined}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                >
+                  この内容で返信
+                </a>
+              </div>
+            )}
           </section>
         ) : (
           <section className="panel tone-empty">
@@ -345,7 +361,7 @@ export function ReplyPage() {
                 </button>
               )}
               <span className="muted small">
-                {suggested ? `${suggested.model} ／ ${(suggested.latency_ms / 1000).toFixed(1)} 秒` : rwBusy ? '書いています…' : ''}
+                {suggested ? `${suggested.model} ／ ${(suggested.latency_ms / 1000).toFixed(1)} 秒` : rwBusy ? '作成中…' : ''}
               </span>
             </div>
             {r && after && (

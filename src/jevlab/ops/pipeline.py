@@ -588,12 +588,16 @@ class Pipeline:
                     "system",
                     f"自動で {settings.route_channel(item.category)} へ（{reason}）",
                 )
+                closes = not audit and settings.auto_closes(item.category)
+                if not closes:
+                    # 返信の要る件は、担当を割り当てて（届かなければ仮で）Slack でメンションする
+                    self._auto_assign(item, settings)
                 self._post_routed(item, by="jevlab（自動）")
                 if audit:
                     self.store.add_event(
                         item.id, "audit", "system", f"抜き取り確認の対象に選ばれました（{settings.audit_rate:.0%}）"
                     )
-                elif settings.auto_closes(item.category):
+                elif closes:
                     # 抜き取り確認に選ばれた件は、人が見るまで完了にしない
                     self._auto_close(item, settings)
             case "review":
@@ -829,6 +833,10 @@ class Pipeline:
         )
         kind = "audit" if item.audit and item.status == "routed" else "review"
         self.store.add_event(item_id, kind, "human", f"人が確認: {verb}", {"before": item.category, "after": category})
+        if item.status == "review" and updated.assignee is None and not settings.auto_closes(updated.category):
+            # 確認で振り分けた件も、返信の要る件なら担当を割り当ててメンションする
+            self._auto_assign(updated, settings)
+            updated = self.store.get(item_id)
         if item.status == "review" or fixed:
             self._post_routed(updated, by="担当者（確認済み）")
         return updated
@@ -840,8 +848,8 @@ class Pipeline:
         if assignee and assignee not in {s.id for s in settings.on_duty()}:
             raise ValueError(f"{self.staff_name(assignee, settings)} は担当がオフです")
         item = self.store.get(item_id)
-        if item.status != "escalated":
-            raise ValueError(f"{item_id} はエスカレーション中ではありません（状態: {item.status}）")
+        if item.status not in ("escalated", "routed"):
+            raise ValueError(f"{item_id} はエスカレーション中でも振り分け済みでもありません（状態: {item.status}）")
         updated = self.store.update(
             item_id,
             lambda i: i.model_copy(

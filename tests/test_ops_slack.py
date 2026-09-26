@@ -436,15 +436,17 @@ async def test_routed_post_links_to_item_and_close_replies_with_reaction(tmp_pat
     await conn.tick()
     item_id = route(conn)
     await conn.tick()
-    ((channel, parent),) = api.sent
+    (channel, parent), (_, mention_line) = api.sent
     # 振り分けの投稿にも件の詳細へのリンクを付け、親として記録する
     assert channel == C_COMPLAINT and f"<http://127.0.0.1:8000/ops/items/{item_id}|画面で開く>" in parent
     assert conn.pipeline.store.get(item_id).slack_ts == "1.0"
+    # 返信の要る件は、スレッドで担当（決まっていなければ振り分け担当）をメンションする
+    assert "<@U0SATO001>" in mention_line and api.threads[1] == "1.0"
     # 分類を変えずに完了 → スレッドに返信し、親に ✅ を付ける。新しい投稿は増えない
     closed = conn.pipeline.close(item_id, None)
     assert closed.status == "closed" and closed.category == "complaint"
     await conn.tick()
-    assert api.sent[1:] == [(C_COMPLAINT, "対応完了（担当: 未割り当て）")] and api.threads[1:] == ["1.0"]
+    assert api.sent[2:] == [(C_COMPLAINT, "対応完了（担当: 未割り当て）")] and api.threads[2:] == ["1.0"]
     assert api.reactions == [(C_COMPLAINT, "1.0", "white_check_mark")]
 
 
@@ -458,7 +460,7 @@ async def test_close_with_fixed_category_notes_the_fix(tmp_path: Path) -> None:
     await conn.tick()
     conn.pipeline.close(item_id, "inquiry")
     await conn.tick()
-    reply = [t for (_, t), th in zip(api.sent, api.threads, strict=True) if th == "1.0"]
+    reply = [t for (_, t), th in zip(api.sent, api.threads, strict=True) if th == "1.0" and "対応完了" in t]
     assert reply == ["対応完了（担当: 未割り当て）。分類を クレーム から 問い合わせ に修正"]
     item = conn.pipeline.store.get(item_id)
     assert item.category == "inquiry" and item.decided_by == "human"
@@ -491,7 +493,8 @@ async def test_lost_response_of_routed_parent_is_not_duplicated(tmp_path: Path) 
     await conn.tick()
     conn._backoff_until = 0.0
     await conn.tick()
-    assert len(api.sent) == 1
+    # 親は 1 回だけ（2 つ目はスレッドのメンション）
+    assert len([th for th in api.threads if th is None]) == 1
     assert conn.pipeline.store.get(item_id).slack_ts == "1.0"
 
 
@@ -657,4 +660,30 @@ async def test_categories_needing_a_reply_stay_open(tmp_path: Path) -> None:
     item_id = _route_as(conn, "inquiry")
     assert conn.pipeline.store.get(item_id).status == "routed"
     await conn.tick()
-    assert [c for c, _ in api.sent] == ["C0INQUIRY1"] and not api.reactions
+    # 投稿とスレッドのメンション。✅ は付けない
+    assert [c for c, _ in api.sent] == ["C0INQUIRY1", "C0INQUIRY1"] and api.threads[1] == "1.0" and not api.reactions
+
+
+@pytest.mark.anyio
+async def test_routed_item_needing_a_reply_is_assigned_and_mentioned(tmp_path: Path) -> None:
+    api = FakeApi()
+    conn = make(tmp_path, api, None, outbound=True, channel_map={"#cs-問い合わせ": "C0INQUIRY1"})
+    with_staff(conn)
+    await conn.tick()
+    store = conn.pipeline.store
+    store.put_settings(store.settings().model_copy(update={"audit_rate": 0.0}))
+    item = store.add_item(IngestRequest(channel="mail", subject="在庫について", body="本文"))
+    item = store.update(
+        item.id,
+        lambda i: i.model_copy(
+            update={"category": "inquiry", "confidence": 0.99, "assign_suggestion": "tamura", "assign_confidence": 0.3}
+        ),
+    )
+    conn.pipeline._route(item, store.settings())
+    routed = store.get(item.id)
+    # 確率が閾値に届かなくても、仮で割り当てる
+    assert routed.status == "routed" and routed.assignee == "tamura" and routed.assign_provisional
+    await conn.tick()
+    assert "<@U0TAMURA1> 担当です（仮で割り当て" in api.sent[1][1] and api.threads[1] == "1.0"
+    # 振り分け済みの件も、人が担当を変えられる
+    assert conn.pipeline.assign(item.id, "sato").assignee == "sato"
