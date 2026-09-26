@@ -17,6 +17,7 @@ import {
 } from './api'
 import { useElapsed } from './common'
 import { Sentences } from './Sentences'
+import { FoldClose } from '../components/fold'
 
 const SAMPLES: { label: string; text: string; recipient: Recipient; medium: Medium }[] = [
   { label: '催促', text: '例の件、まだですか？なんで昨日までに終わってないんですか。至急お願いします。', recipient: 'colleague', medium: 'chat' },
@@ -481,6 +482,7 @@ export function TonePage() {
                   </li>
                 ))}
               </ul>
+              <FoldClose />
             </details>
           )}
         </section>

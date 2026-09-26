@@ -33,7 +33,7 @@ function Message({ post, fieldTitles }: { post: Post; fieldTitles: Record<string
                 <span className="muted">{fieldTitles[k] ?? k}</span> {v}
               </span>
             ))}
-            {post.item_id && <Link to={`/ops/items/${post.item_id}`}>{post.item_id} を開く</Link>}
+            {post.item_id && <Link to={`/ops/inbox?id=${encodeURIComponent(post.item_id)}`}>{post.item_id} を開く</Link>}
           </div>
         )}
       </div>

@@ -234,7 +234,7 @@ async def test_escalation_thread_mentions_dispatcher_when_unassigned(tmp_path: P
     item_id = escalate(conn, assign_suggestion="tamura")
     await conn.tick()
     (_, parent), (_, reply) = api.sent
-    assert f"<http://127.0.0.1:8000/ops/items/{item_id}|画面で開く>" in parent
+    assert f"<http://127.0.0.1:8000/ops/inbox?id={item_id}|画面で開く>" in parent
     assert api.threads == [None, "1.0"]
     # 推定した担当（田村）は名前だけ。呼び出すのは振り分け担当（佐藤）
     assert "<@U0SATO001>" in reply and "推定: 田村" in reply and "U0TAMURA1" not in reply
@@ -438,7 +438,7 @@ async def test_routed_post_links_to_item_and_close_replies_with_reaction(tmp_pat
     await conn.tick()
     (channel, parent), (_, mention_line) = api.sent
     # 振り分けの投稿にも件の詳細へのリンクを付け、親として記録する
-    assert channel == C_COMPLAINT and f"<http://127.0.0.1:8000/ops/items/{item_id}|画面で開く>" in parent
+    assert channel == C_COMPLAINT and f"<http://127.0.0.1:8000/ops/inbox?id={item_id}|画面で開く>" in parent
     assert conn.pipeline.store.get(item_id).slack_ts == "1.0"
     # 返信の要る件は、スレッドで担当（決まっていなければ振り分け担当）をメンションする
     assert "<@U0SATO001>" in mention_line and api.threads[1] == "1.0"

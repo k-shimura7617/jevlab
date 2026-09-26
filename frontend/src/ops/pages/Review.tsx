@@ -7,6 +7,7 @@ import { Empty, ItemRow, WeightSliders } from '../components'
 import { priorityOf } from '../format'
 import { ItemPanel } from '../ItemPanel'
 import { useOps, usePolling } from '../state'
+import { FoldClose } from '../../components/fold'
 
 type Tab = 'review' | 'audit'
 type Order = 'priority' | 'oldest'
@@ -162,6 +163,7 @@ export function Review() {
               <summary className="small">優先度の重み（並び順）</summary>
               <WeightSliders weights={weights} onChange={setWeights} />
               {weightError && <div className="error small">{weightError}</div>}
+              <FoldClose />
             </details>
           )}
           {tab === 'audit' && (
