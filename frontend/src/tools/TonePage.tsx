@@ -74,8 +74,8 @@ function saveHistory(entries: HistoryEntry[]) {
   }
 }
 
-const VERDICT_LABELS: Record<ToneResult['verdict'], string> = { ok: '送って大丈夫', review: '見直し推奨', caution: '要注意' }
-const LEVEL_LABELS: Record<Level, string> = { ok: '問題なし', warn: '気になる', bad: '要見直し' }
+const VERDICT_LABELS: Record<ToneResult['verdict'], string> = { ok: 'OK', review: '見直し推奨', caution: '要注意' }
+const LEVEL_LABELS: Record<Level, string> = { ok: '問題なし', warn: '注意', bad: '要見直し' }
 
 /** 観点の「悪さ」（0〜1）。サーバが計算した値を使う（丁寧さは「適切」以外の確率）。 */
 const badness = (a: AspectResult): number => a.badness

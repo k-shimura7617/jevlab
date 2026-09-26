@@ -35,6 +35,7 @@ jevlab は、TypeSafe の System One モデル **Jev**（と互換のローカ�
 | [walkthrough.md](walkthrough.md) | 画面操作の手順書 | 利用者 |
 | [slack-setup.md](slack-setup.md) | 実際の Slack とつなぐ手順 | 利用者 |
 | [handoff.md](handoff.md) | 別セッションへの引き継ぎ | 別セッションの Claude Code |
+| [handoff-prompt.md](handoff-prompt.md) | 新しいセッションに貼る引き渡しのプロンプト | 利用者 |
 | [research/](research/) | 調査メモと提案 | 開発者 |
 
 ## ドキュメントの運用

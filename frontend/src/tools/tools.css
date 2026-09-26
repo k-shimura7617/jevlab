@@ -93,12 +93,14 @@ h2.inline { margin: 0; }
 .reply-input textarea { font-size: 14px; line-height: 1.7; }
 /* 欄はすべて固定の高さ（ほかの欄の操作で大きさや位置が変わらないように） */
 @media (min-width: 1001px) {
-  .reply-input > #reply-inquiry { height: 220px; resize: none; }
-  .reply-input > #reply-draft { height: 280px; resize: none; }
-  .policy-area .policy-box { height: 160px; resize: none; }
+  .reply-input > #reply-inquiry { height: 300px; resize: none; }
+  .reply-input > #reply-draft { height: 400px; resize: none; }
 }
-/* 方針は枠の下端に寄せる（開いても上の欄は動かない） */
-.policy-area { margin-top: auto; padding-top: 16px; display: flex; flex-direction: column; gap: 8px; }
+/* 方針のボタンは枠の下端に置き、方針はモーダルで開く */
+.policy-area { margin-top: auto; padding-top: 12px; }
+.modal { position: fixed; top: 50%; left: 50%; transform: translate(-50%, -50%); width: min(640px, calc(100vw - 32px)); background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 16px 20px; z-index: 21; box-shadow: 0 8px 30px rgba(0, 0, 0, .2); }
+.modal h2 { margin: 0 0 8px; }
+.modal .policy-box { height: 200px; resize: none; }
 .policy-toggle { padding: 6px 16px; font-size: 14px; }
 
 /* 判定するボタンは右端の決まった位置に置き、文言が変わっても幅を変えない */
