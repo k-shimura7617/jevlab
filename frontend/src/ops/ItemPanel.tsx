@@ -111,7 +111,7 @@ function QuickActions({
       )}
       {/@/.test(item.from_address) && (
         // jevlab はメールを送らない。お使いのメールソフトを、宛先と件名を入れた状態で開く
-        <a className="btn secondary" href={replyHref(item)}>
+        <a className="btn secondary" href={replyHref(item)} target="_blank" rel="noopener noreferrer">
           メールで返信
         </a>
       )}
