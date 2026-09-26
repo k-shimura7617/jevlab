@@ -82,6 +82,8 @@ export interface Item {
   } | null
   // 過去の問い合わせとして取り込んだ件（導入前の試算用）
   backfill: boolean
+  // 確率が閾値に届かず、仮で割り当てたか
+  assign_provisional: boolean
   updated_at: string
   closed_at: string | null
   priority: Record<string, number>

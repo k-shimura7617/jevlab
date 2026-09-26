@@ -628,12 +628,17 @@ class Pipeline:
         view = views.get(oq.ASSIGNEE_ID)
         if view is None:
             return None, None
-        key = str(view.prediction)
-        known = {s.id for s in settings.on_duty()}
+        known = [s.id for s in settings.on_duty()]
         # 確信度は選択肢の数（担当者の人数）で意味が変わるため、推定した担当の確率で判断する。
-        # 確率がなければ None（自動では割り当てない）
-        p = view.probabilities.get(key)
-        return (key if key in known else None), p
+        # 「該当なし」が一番でも、担当者のうち確率が一番高い人を推定にする（仮で割り当てるため）
+        scored = [(k, view.probabilities[k]) for k in known if k in view.probabilities]
+        if scored:
+            return max(scored, key=lambda kp: kp[1])
+        # 確率がないときは、答えの担当者（1 人だけならその人）を確率なしで返す
+        key = str(view.prediction)
+        if key in known:
+            return key, None
+        return (known[0], None) if len(known) == 1 else (None, None)
 
     def staff_name(self, staff_id: str | None, settings: Settings | None = None) -> str:
         if staff_id is None:
@@ -656,19 +661,31 @@ class Pipeline:
             self.store.add_event(
                 item.id, "assign", "system", "担当の推定: 該当する担当者なし（手動で割り当ててください）"
             )
-        elif a.auto and conf >= a.threshold:
+        elif a.auto:
+            # 閾値に届かなくても、誰にも割り当てないと誰も手を付けないので、一番確率の高い人に仮で割り当てる
+            provisional = conf < a.threshold
             self.store.update(
                 item.id,
                 lambda i: i.model_copy(
-                    update={"assignee": i.assign_suggestion, "assigned_by": "auto", "auto_assigned": True}
+                    update={
+                        "assignee": i.assign_suggestion,
+                        "assigned_by": "auto",
+                        "auto_assigned": True,
+                        "assign_provisional": provisional,
+                    }
                 ),
+            )
+            how = (
+                f"仮で割り当て: {name}（確率 {conf:.2f} < {a.threshold:.2f}）"
+                if provisional
+                else (f"自動で割り当て: {name}（確率 {conf:.2f} ≥ {a.threshold:.2f}）")
             )
             self.store.add_event(
                 item.id,
                 "assign",
                 "system",
-                f"担当を自動で割り当て: {name}（確率 {conf:.2f} ≥ {a.threshold:.2f}）",
-                {"suggestion": item.assign_suggestion, "confidence": conf},
+                f"担当を{how}",
+                {"suggestion": item.assign_suggestion, "confidence": conf, "provisional": provisional},
             )
         else:
             self.store.add_event(
@@ -807,7 +824,13 @@ class Pipeline:
             raise ValueError(f"{item_id} はエスカレーション中ではありません（状態: {item.status}）")
         updated = self.store.update(
             item_id,
-            lambda i: i.model_copy(update={"assignee": assignee or None, "assigned_by": "human" if assignee else None}),
+            lambda i: i.model_copy(
+                update={
+                    "assignee": assignee or None,
+                    "assigned_by": "human" if assignee else None,
+                    "assign_provisional": False,
+                }
+            ),
         )
         how = ("一括で担当を外す" if not assignee else "一括で割り当て") if bulk else "担当者"
         self.store.add_event(

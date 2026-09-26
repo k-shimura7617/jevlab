@@ -61,7 +61,7 @@ function Handling({ item, onDone }: { item: Item; onDone: () => void }) {
             <span className="conf">（確率 {pct(item.assign_confidence ?? 0, 0)}）</span>
           </span>
           {item.assigned_by === 'auto' && item.assignee === item.assign_suggestion ? (
-            <span className="muted small">自動で割り当て済み</span>
+            <span className="muted small">{item.assign_provisional ? '仮で割り当て済み' : '自動で割り当て済み'}</span>
           ) : (
             item.assignee !== item.assign_suggestion && (
               <button
@@ -284,7 +284,7 @@ export function Escalations() {
                 ))}
               </select>
               <button type="button" disabled={bulkBusy || !target || toAdd.length + toRemove.length === 0} onClick={bulkAssign}>
-                {target ? `${staffName(staff, target)}の担当を更新（追加 ${toAdd.length}・外す ${toRemove.length}）` : `選んだ ${selected.length} 件を割り当てる`}
+                {target ? `更新（追加 ${toAdd.length}・解除 ${toRemove.length}）` : `割り当て（${selected.length} 件）`}
               </button>
             </span>
           </BulkBar>
@@ -327,7 +327,7 @@ export function Escalations() {
                             ) : (
                               '未割り当て'
                             )}
-                            {i.assigned_by === 'auto' && <span className="assign-by">自動</span>}
+                            {i.assigned_by === 'auto' && <span className="assign-by">{i.assign_provisional ? '仮' : '自動'}</span>}
                           </span>
                         </>
                       }

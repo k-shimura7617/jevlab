@@ -95,13 +95,17 @@ class Item(BaseModel):
     assigned_by: Literal["auto", "human"] | None = None
     # 一度でも自動で割り当てたか（人が変えた・外した後も残し、自動割り当ての実績を数える）
     auto_assigned: bool = False
+    # 確率が閾値に届かず、仮で割り当てたか（人が割り当て直すと外れる）
+    assign_provisional: bool = False
     # Jev が推定した担当者（確信度が低くて割り当てなかった場合も残し、推定の当たり具合を測る）
     assign_suggestion: str | None = None
     # 推定した担当の確率（名前は以前のまま。確信度は担当者の人数で意味が変わるため、確率を入れる）
     assign_confidence: float | None = None
-    # 実際の Slack に投稿したエスカレーションの親メッセージ（返信をこのスレッドに付ける）
+    # 実際の Slack に投稿した件の親メッセージ（返信をこのスレッドに付ける）
     slack_channel: str | None = None
     slack_ts: str | None = None
+    # 親のほかに Slack に出した投稿（分類の修正・完了の投稿など）。完了したら親と一緒に ✅ を付ける
+    slack_more: list[tuple[str, str]] = []
     # 親の投稿を送りかけた（応答が返らず、投稿できたか分からない）。やり直す前に Slack 側を確かめる
     slack_parent_pending: bool = False
     # 担当についての最初の返信を送ったか（親と返信を別々に記録し、やり直しで二重に書かない）

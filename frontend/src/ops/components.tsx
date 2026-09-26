@@ -281,10 +281,10 @@ export function BulkBar({
         <strong>{count}</strong> / {total} 件を選択
       </span>
       <button type="button" className="link-btn" onClick={onAll} disabled={!total}>
-        表示中をすべて選ぶ
+        全選択
       </button>
       <button type="button" className="link-btn" onClick={onNone} disabled={!count}>
-        選択を外す
+        全解除
       </button>
       <span className="spacer" />
       {children}

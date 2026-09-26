@@ -544,16 +544,33 @@ def escalate_one(client: TestClient, body: str = "至急連絡ください") -> 
     return settle(client, item_id)["item"]
 
 
-def test_auto_assign_only_when_confident(client: TestClient) -> None:
+def test_auto_assign_when_confident_otherwise_provisional(client: TestClient) -> None:
     configure(client, guard__human_check=False, classify__auto_threshold=1.0, classify__review_threshold=1.0)
     configure(client, assign={"auto": True, "threshold": 0.0, "use_examples": True, "max_examples": 3})
     item = escalate_one(client)
-    if item["assign_suggestion"] is not None:  # モックは「該当なし」を選ぶこともある
-        assert item["assignee"] == item["assign_suggestion"] and item["assigned_by"] == "auto"
+    # 「該当なし」が一番でも、担当者のうち一番確率の高い人を推定にして割り当てる
+    assert item["assign_suggestion"] is not None
+    assert item["assignee"] == item["assign_suggestion"] and item["assigned_by"] == "auto"
+    assert item["assign_provisional"] is False
+    # 閾値に届かないときは、仮で割り当てる（誰にも割り当てないと、誰も手を付けないため）
     configure(client, assign={"auto": True, "threshold": 1.0, "use_examples": True, "max_examples": 3})
     item = escalate_one(client, "返金してください、至急")
-    assert item["assignee"] is None and item["assigned_by"] is None
+    assert item["assignee"] == item["assign_suggestion"] and item["assign_provisional"] is True
     assert item["assign_confidence"] is not None
+    # 人が割り当て直すと、仮ではなくなる
+    changed = client.post(f"/api/ops/items/{item['id']}/assign", json={"assignee": "suzuki"}).json()
+    assert changed["assign_provisional"] is False and changed["assigned_by"] == "human"
+
+
+def test_single_on_duty_staff_always_gets_the_item(client: TestClient) -> None:
+    settings = client.get("/api/ops/settings").json()
+    for m in settings["staff"]:
+        m["active"] = m["id"] == "tamura"
+    client.put("/api/ops/settings", json=settings)
+    configure(client, guard__human_check=False, classify__auto_threshold=1.0, classify__review_threshold=1.0)
+    configure(client, assign={"auto": True, "threshold": 1.0, "use_examples": True, "max_examples": 3})
+    item = escalate_one(client, "至急、請求書を送ってください")
+    assert item["assignee"] == "tamura" and item["assign_provisional"] is True
 
 
 def test_bulk_assign_and_assignment_stats(client: TestClient) -> None:
