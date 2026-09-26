@@ -173,6 +173,7 @@ export const tools = {
     call<ReplyResult>('POST', `/reply?target=${encodeURIComponent(target)}`, body),
   replyRewrite: (body: { inquiry: string; draft: string; policy: string; findings: { title: string; detail: string }[]; model: ClaudeModel }) =>
     call<RewriteResult>('POST', '/reply/rewrite', body),
+  replyDraft: (body: { inquiry: string; policy: string; model: ClaudeModel }) => call<RewriteResult>('POST', '/reply/draft', body),
   contractMeta: () => call<ContractMeta>('GET', '/contract/meta'),
   contract: (target: Mode, text: string) => call<ContractResult>('POST', `/contract?target=${encodeURIComponent(target)}`, { text }),
   explain: (clauses: { index: number; text: string; level: ClauseLevel; flags: string[] }[], model: ClaudeModel) =>

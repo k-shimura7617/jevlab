@@ -5,7 +5,9 @@ import { pct, TARGET_SHORT, usd } from '../format'
 import { ops } from '../ops/api'
 import { Page, useShell, useTitle } from '../shell'
 import { tools, type Level, type ReplyCheck, type ReplyMeta, type ReplyResult, type RewriteResult } from './api'
+import { Hint } from '../components/hint'
 import { useElapsed } from './common'
+import { Sentences } from './Sentences'
 
 const SAMPLE = {
   inquiry: '先週注文したマグカップが割れて届きました。明日のプレゼントに使いたかったのに残念です。交換はできますか？',
@@ -105,6 +107,10 @@ export function ReplyPage() {
   const [after, setAfter] = useState<{ draft: string; result: ReplyResult } | null>(null)
   const [afterBusy, setAfterBusy] = useState(false)
   const elapsed = useElapsed(rwBusy)
+  const [policyOpen, setPolicyOpen] = useState(false)
+  const [draftBusy, setDraftBusy] = useState(false)
+  const [draftNote, setDraftNote] = useState<string | null>(null)
+  const draftElapsed = useElapsed(draftBusy)
   // 判定をやり直したら、それより前に頼んだ直した案・再判定の応答は捨てる
   const generation = useRef(0)
   const policyText = policy ?? meta?.default_policy ?? ''
@@ -127,6 +133,22 @@ export function ReplyPage() {
       .catch((e: unknown) => setError(errorMessage(e)))
   }, [itemId])
 
+  // 問い合わせから、返信の案を Claude に書いてもらう（下書きの欄に入れる）
+  const askDraft = () => {
+    if (!inquiry.trim() || draftBusy) return
+    if (draft.trim() && !window.confirm('いまの下書きを、AI の案で置き換えますか？')) return
+    setDraftBusy(true)
+    setDraftNote(null)
+    setError(null)
+    tools
+      .replyDraft({ inquiry: inquiry.trim(), policy: policyText, model: meta?.default_model ?? 'sonnet' })
+      .then((r) => {
+        setDraft(r.rewritten)
+        setDraftNote(`${r.model} ／ ${(r.latency_ms / 1000).toFixed(1)} 秒${r.changes.length ? `・${r.changes.join('・')}` : ''}`)
+      })
+      .catch((e: unknown) => setError(errorMessage(e)))
+      .finally(() => setDraftBusy(false))
+  }
   const stale = judged !== null && (inquiry.trim() !== judged.inquiry || draft.trim() !== judged.draft)
   const check = () => {
     if (!target || !inquiry.trim() || !draft.trim() || busy) return
@@ -216,9 +238,16 @@ export function ReplyPage() {
             お客様の問い合わせ
           </label>
           <textarea id="reply-inquiry" rows={5} maxLength={meta?.max_chars ?? 4000} value={inquiry} onChange={(e) => setInquiry(e.target.value)} />
-          <label className="small" htmlFor="reply-draft">
-            返信の下書き
-          </label>
+          <div className="draft-head">
+            <label className="small" htmlFor="reply-draft">
+              返信の下書き
+            </label>
+            <span className="spacer" />
+            <button type="button" className="rw-btn" disabled={draftBusy || !inquiry.trim()} onClick={askDraft}>
+              {draftBusy ? `AI が作成中…（${draftElapsed} 秒）` : '返信の案を AI に聞く（Claude）'}
+            </button>
+          </div>
+          {draftNote && <div className="muted small">{draftNote}</div>}
           <textarea
             id="reply-draft"
             rows={6}
@@ -232,10 +261,15 @@ export function ReplyPage() {
               }
             }}
           />
-          <details>
-            <summary className="small">約束してよい範囲（方針）</summary>
-            <textarea aria-label="約束してよい範囲" rows={3} maxLength={1000} value={policyText} onChange={(e) => setPolicy(e.target.value)} />
-          </details>
+          <div className="policy-row">
+            <button type="button" className="secondary" aria-expanded={policyOpen} onClick={() => setPolicyOpen((v) => !v)}>
+              約束してよい範囲（方針）{policyOpen ? 'を閉じる' : 'を見る・変える'}
+            </button>
+            <Hint text={`判定と AI の案は、これを超える約束をしていないかを見ます。\n${policyText}`} />
+          </div>
+          {policyOpen && (
+            <textarea className="policy-box" aria-label="約束してよい範囲" rows={4} maxLength={1000} value={policyText} onChange={(e) => setPolicy(e.target.value)} />
+          )}
           <div className="row judge-row">
             <button type="button" className="judge-btn" title="Ctrl+Enter" disabled={busy || !inquiry.trim() || !draft.trim() || !target} onClick={check}>
               {busy ? '判定中…' : '判定する'}
@@ -247,7 +281,9 @@ export function ReplyPage() {
           <section className={`panel tone-result verdict-${r.verdict}`} data-testid="reply-result">
             <div className="verdict-banner">
               <span className="verdict-label">{VERDICT_LABELS[r.verdict]}</span>
-              <span>{r.verdict_note}</span>
+              <span>
+                <Sentences text={r.verdict_note} />
+              </span>
             </div>
             <div className="muted small">
               {r.model} ／ {r.latency_ms.toFixed(0)} ms ／ {usd(r.cost_usd)}
@@ -257,7 +293,9 @@ export function ReplyPage() {
           </section>
         ) : (
           <section className="panel tone-empty">
-            <p className="muted">問い合わせと下書きを入れて「判定する」を押してください。</p>
+            <p className="muted">
+              <Sentences text="問い合わせと下書きを入れて「判定する」を押してください。下書きがなければ「返信の案を AI に聞く」で作れます。" />
+            </p>
           </section>
         )}
       </div>

@@ -4,6 +4,7 @@ import { pct, TARGET_SHORT, usd } from '../format'
 import { Page, useShell, useTitle } from '../shell'
 import { tools, type ClauseLevel, type ClauseResult, type ContractMeta, type ContractResult, type Explanation } from './api'
 import { useElapsed } from './common'
+import { Sentences } from './Sentences'
 
 // 評価アプリ「契約条項のリスク判定」の評価データから作った例（架空の SaaS 利用規約）
 const SAMPLE = `第1条（目的）
@@ -37,7 +38,9 @@ function ClauseCard({ c, meta, explanation }: { c: ClauseResult; meta: ContractM
       <div className="clause-text">{c.text}</div>
       {explanation && (
         <div className="clause-explain" data-testid="clause-explain">
-          <p>{explanation.summary}</p>
+          <p>
+            <Sentences text={explanation.summary} />
+          </p>
           {explanation.ask.length > 0 && (
             <ul className="small">
               {explanation.ask.map((a, i) => (
@@ -120,7 +123,7 @@ export function ContractPage() {
         <span className="muted small">{target ? TARGET_SHORT[target] : '接続先'}・文面は保存しません</span>
       </div>
       <div className="warn-box" data-testid="disclaimer">
-        {meta?.disclaimer ?? '法的助言ではありません。法務に回す前の一次チェックの目安です。'}
+        <Sentences text={meta?.disclaimer ?? '法的助言ではありません。法務に回す前の一次チェックの目安です。'} />
       </div>
       {metaError && <div className="error">{metaError}</div>}
       <div className="tone-layout">

@@ -13,7 +13,7 @@ from jevlab.core import target
 from jevlab.core.budget import BudgetExceededError
 from jevlab.core.client import judge
 from jevlab.core.engine import answer_views
-from jevlab.core.generator import CLAUDE_MODELS, GenerateRequest, GenerationError, make_generator
+from jevlab.core.generator import CLAUDE_MODELS, ClaudeModel, GenerateRequest, GenerationError, make_generator
 from jevlab.ops.pipeline import BackendLike
 from jevlab.tools import contract, reply, tone
 
@@ -272,22 +272,18 @@ async def check_reply(req: ReplyRequest, backend: Annotated[BackendLike, Depends
         raise HTTPException(status_code=502, detail=f"判定の応答が想定と違います: {type(e).__name__}: {e}") from e
 
 
-@router.post("/reply/rewrite")
-async def rewrite_reply(req: reply.RewriteRequest, request: Request) -> tone.RewriteResult:
+async def _written(request: Request, model: ClaudeModel, system: str, prompt: str, what: str) -> tone.RewriteResult:
+    """Claude に文面を書かせる（直した案・返信の案）。"""
     slots: asyncio.Semaphore = request.app.state.rewrite_slots
     try:
-        generator = make_generator(req.model)
+        generator = make_generator(model)
         async with slots:
-            out = await generator.generate(
-                GenerateRequest(
-                    system=reply.REWRITE_SYSTEM, prompt=reply.rewrite_prompt(req), schema=tone.REWRITE_SCHEMA
-                )
-            )
+            out = await generator.generate(GenerateRequest(system=system, prompt=prompt, schema=tone.REWRITE_SCHEMA))
     except GenerationError as e:
-        raise HTTPException(status_code=502, detail=f"直した案を作れませんでした: {e}") from e
+        raise HTTPException(status_code=502, detail=f"{what}を作れませんでした: {e}") from e
     data = out.structured
     if data is None or not isinstance(data.get("rewritten"), str) or not data["rewritten"].strip():
-        raise HTTPException(status_code=502, detail=f"直した案の形が想定と違います: {out.text[:200]}")
+        raise HTTPException(status_code=502, detail=f"{what}の形が想定と違います: {out.text[:200]}")
     return tone.RewriteResult(
         rewritten=str(data["rewritten"]).strip(),
         changes=_strings(data.get("changes")),
@@ -296,3 +292,14 @@ async def rewrite_reply(req: reply.RewriteRequest, request: Request) -> tone.Rew
         latency_ms=out.latency_ms,
         reported_cost_usd=out.reported_cost_usd,
     )
+
+
+@router.post("/reply/rewrite")
+async def rewrite_reply(req: reply.RewriteRequest, request: Request) -> tone.RewriteResult:
+    return await _written(request, req.model, reply.REWRITE_SYSTEM, reply.rewrite_prompt(req), "直した案")
+
+
+@router.post("/reply/draft")
+async def draft_reply(req: reply.DraftRequest, request: Request) -> tone.RewriteResult:
+    """問い合わせ（個人情報の候補は伏せる）から、返信の案を Claude に書かせる。"""
+    return await _written(request, req.model, reply.DRAFT_SYSTEM, reply.draft_prompt(req), "返信の案")
