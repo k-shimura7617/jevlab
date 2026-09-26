@@ -269,7 +269,7 @@ function Sidebar() {
     n ? <span className={`nav-badge ${tone}`}>{n}</span> : null
   const waiting = (counts?.pii_review ?? 0) + (counts?.review ?? 0) + (counts?.escalated ?? 0)
   const settings = ops?.settings
-  const who = (label: string) => <span className="nav-who">（{label}）</span>
+  const who = (label: string) => <span className="nav-who">{label}</span>
   const guardWho = settings && (!settings.guard.enabled ? '無効' : settings.guard.use_model ? TARGET_SHORT[settings.guard.target] : '規則のみ')
   const classifyWho =
     settings &&
