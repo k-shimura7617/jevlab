@@ -249,7 +249,7 @@ async def test_escalation_thread_mentions_auto_assignee_and_follows_changes(tmp_
     await conn.tick()
     item_id = escalate(conn, assignee="tamura", assigned_by="auto", assign_suggestion="tamura")
     await conn.tick()
-    assert "<@U0TAMURA1>" in api.sent[1][1] and "自動" in api.sent[1][1]
+    assert api.sent[1][1].startswith("<@U0TAMURA1>\n確認してください。")
     # 人が担当を変えた・外した・完了にした → 同じスレッドに書き足す
     conn.pipeline.assign(item_id, "suzuki")
     conn.pipeline.assign(item_id, "")
@@ -548,7 +548,8 @@ async def test_provisional_assignee_is_mentioned(tmp_path: Path) -> None:
     escalate(conn, assignee="tamura", assigned_by="auto", assign_provisional=True, assign_confidence=0.42)
     await conn.tick()
     reply = api.sent[1][1]
-    assert "<@U0TAMURA1>" in reply and "仮で割り当て" in reply and "0.42" in reply
+    # カッコ書き（仮で割り当て など）は付けず、担当確信度を 1 行で添える
+    assert reply == "<@U0TAMURA1>\n確認してください。\n担当確信度 0.42"
 
 
 @pytest.mark.anyio
@@ -684,6 +685,6 @@ async def test_routed_item_needing_a_reply_is_assigned_and_mentioned(tmp_path: P
     # 確率が閾値に届かなくても、仮で割り当てる
     assert routed.status == "routed" and routed.assignee == "tamura" and routed.assign_provisional
     await conn.tick()
-    assert "<@U0TAMURA1> 担当です（仮で割り当て" in api.sent[1][1] and api.threads[1] == "1.0"
+    assert api.sent[1][1] == "<@U0TAMURA1>\n確認してください。\n担当確信度 0.30" and api.threads[1] == "1.0"
     # 振り分け済みの件も、人が担当を変えられる
     assert conn.pipeline.assign(item.id, "sato").assignee == "sato"
