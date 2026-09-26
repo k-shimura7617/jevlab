@@ -190,7 +190,7 @@ FastAPI（src/jevlab/web.py、127.0.0.1:8000）
 | `src/jevlab/ops/slack.py` | 実際の Slack とのつなぎ込み（Socket Mode。送信・スレッド・知らせ・受信） |
 | `src/jevlab/ops/api.py` | 運用の API（`/api/ops/...`） |
 | `src/jevlab/tools/tone.py` | 言い方チェックの質問・判定ロジック・書き換えのプロンプト |
-| `src/jevlab/tools/reply.py` | 返信前チェック（答えているか・方針を超えた約束・謝罪・足りない情報・言い方。直した案は Claude） |
+| `src/jevlab/tools/reply.py` | 返信前チェック（答えているか・方針を超えた約束・謝罪・足りない情報・言い方。修正案は Claude） |
 | `src/jevlab/tools/contract.py` | 契約・規約チェック（条項に分け、評価アプリ contract の質問を条項ごとに判定。説明は Claude） |
 | `src/jevlab/tools/api.py` | ツールの API（`/api/tools/...`） |
 | `frontend/src/shell.tsx` | 画面の枠（左ペイン・ヘッダー・接続先の切替・利用額） |
