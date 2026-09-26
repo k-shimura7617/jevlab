@@ -99,6 +99,7 @@ function QuickActions({
           ))}
         </>
       )}
+      {item.status === 'routed' && <RoutedAssignee item={item} busy={busy} run={run} />}
       {item.status === 'routed' && meta && <CloseRouted key={`${item.id}:${item.category ?? ''}`} item={item} meta={meta} busy={busy} run={run} />}
       {item.status === 'escalated' && here !== 'escalations' && (
         <Link className="btn" to={`/ops/escalations?id=${item.id}`}>
@@ -131,6 +132,29 @@ function QuickActions({
  * 振り分け済みの件の対応完了。最終の分類は、いまの分類を最初から選んでおく。
  * 触らずに完了すれば「分類は合っていた」、切り替えれば「修正した」として記録し、閾値の調整の正解に使う。
  */
+/** 振り分け済みの件の担当（自動で割り当てた担当を人が変える）。 */
+function RoutedAssignee({ item, busy, run }: { item: Item; busy: boolean; run: (f: () => Promise<unknown>) => void }) {
+  const { settings } = useOps()
+  return (
+    <div className="row">
+      <label className="muted small" htmlFor={`routed-assignee-${item.id}`}>
+        担当者
+      </label>
+      <select id={`routed-assignee-${item.id}`} value={item.assignee ?? ''} disabled={busy} onChange={(e) => run(() => ops.assign(item.id, e.target.value))}>
+        <option value="">未割り当て</option>
+        {(settings?.staff ?? [])
+          .filter((s) => s.active || s.id === item.assignee)
+          .map((s) => (
+            <option key={s.id} value={s.id}>
+              {s.name}
+            </option>
+          ))}
+      </select>
+      {item.assign_provisional && item.assigned_by === 'auto' && <span className="muted small">仮で割り当て</span>}
+    </div>
+  )
+}
+
 function CloseRouted({ item, meta, busy, run }: { item: Item; meta: Meta; busy: boolean; run: (f: () => Promise<unknown>) => void }) {
   const [category, setCategory] = useState(item.category ?? '')
   return (

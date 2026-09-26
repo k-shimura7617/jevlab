@@ -112,3 +112,11 @@ h2.inline { margin: 0; }
 .reply-input textarea { padding: 10px 12px; font-size: 15px; }
 .reply-input label.small { margin-top: 8px; font-size: 14px; }
 .policy-box { width: 100%; padding: 10px 12px; font-size: 14px; line-height: 1.7; }
+
+/* 「この内容で返信」: 広い画面では結果の枠の右端、左の「判定する」と同じ高さに置く */
+.reply-send { margin-top: 12px; text-align: right; }
+@media (min-width: 1001px) {
+  .tone-result { position: relative; }
+  .reply-send { position: absolute; right: 16px; margin: 0; }
+}
+.btn.judge-btn { text-align: center; }
