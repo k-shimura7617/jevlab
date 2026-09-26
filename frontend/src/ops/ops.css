@@ -383,3 +383,9 @@ tr.off td { color: var(--muted); }
 .miss-report .row > .small:first-child { overflow-wrap: anywhere; min-width: 0; }
 .pii-mark.static { cursor: text; }
 .kev-queue { display: inline-block; padding: 1px 8px; border-radius: 999px; background: var(--warn-soft); color: var(--warn); font-weight: 600; }
+.category-table { border-collapse: collapse; width: 100%; font-size: 13px; }
+.category-table th, .category-table td { padding: 4px 6px; text-align: left; vertical-align: top; }
+.category-table td:nth-child(1) input { width: 8em; }
+.category-table td:nth-child(2) { min-width: 16em; }
+.category-table td:nth-child(2) textarea { width: 100%; box-sizing: border-box; }
+.category-table td:nth-child(3) input { width: 9em; }

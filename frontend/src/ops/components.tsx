@@ -32,7 +32,7 @@ export function CategoryTag({ meta, item, showConfidence = true }: { meta: Meta 
     return <span className="muted small">{item.pii_decision === 'blocked' ? '個人情報のため Jev 未送信' : '未分類'}</span>
   return (
     <span className="cat-tag" style={{ '--cat': categoryColor(item.category) } as CSSProperties}>
-      {meta?.categories[item.category] ?? item.category}
+      {meta?.category_labels[item.category] ?? item.category}
       {showConfidence && item.confidence !== null && item.decided_by !== 'human' && (
         <span className="conf" title={CONFIDENCE_NOTE}>
           {pct(item.confidence, 0)}

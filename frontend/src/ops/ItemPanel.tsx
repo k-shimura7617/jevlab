@@ -331,7 +331,7 @@ export function ItemPanel({ id, onChanged, here }: { id: string; onChanged?: () 
           <summary>デモデータの想定ラベル</summary>
           <dl>
             <dt>分類</dt>
-            <dd>{item.expected.category ? (meta.categories[item.expected.category] ?? item.expected.category) : '-'}</dd>
+            <dd>{item.expected.category ? (meta.category_labels[item.expected.category] ?? item.expected.category) : '-'}</dd>
             <dt>不満度 / 緊急</dt>
             <dd>
               {item.expected.frustration ?? '-'} / {item.expected.urgent === undefined ? '-' : item.expected.urgent ? '緊急' : '通常'}

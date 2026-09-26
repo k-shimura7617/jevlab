@@ -17,7 +17,7 @@ from typesafe_sdk import Choice, Noul, Score
 
 from jevlab.apps.mail.questions import QUESTIONS as MAIL_QUESTIONS
 from jevlab.core.client import Question
-from jevlab.ops.models import StaffMember
+from jevlab.ops.models import CategoryDef, StaffMember
 from jevlab.ops.pii import PII_LABELS, Span
 
 NONE_KEY: Final = "none"
@@ -176,8 +176,19 @@ def classify_state(text: str) -> dict[str, object]:
     return {"mail": {"body": text}}
 
 
-def classify_questions(candidates: Mapping[str, list[str]]) -> dict[str, Question]:
-    return {**MAIL_QUESTIONS, **PRIORITY_QUESTIONS, **field_questions(candidates)}
+def category_question(categories: Sequence[CategoryDef]) -> Choice:
+    """運用の分類（設定で編集できる）から、仕分けの質問を作る。問いの文はメール仕分けのものを使う。"""
+    base = MAIL_QUESTIONS["category"]
+    return Choice(instructions=base.instructions, criteria={c.key: c.criteria for c in categories})
+
+
+def classify_questions(candidates: Mapping[str, list[str]], categories: Sequence[CategoryDef]) -> dict[str, Question]:
+    return {
+        **MAIL_QUESTIONS,
+        "category": category_question(categories),
+        **PRIORITY_QUESTIONS,
+        **field_questions(candidates),
+    }
 
 
 def picked_value(candidates: Mapping[str, list[str]], field_id: str, key: str) -> str | None:

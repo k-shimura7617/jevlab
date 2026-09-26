@@ -30,15 +30,19 @@ from typing import Final, Literal, Protocol, TypeVar
 from pydantic import BaseModel
 
 from jevlab.ops.models import Event, IngestRequest, Item, Post, Settings, StaffMember
-from jevlab.ops.pipeline import CLOSE_AUTHOR, ESCALATION_CHANNEL, ROUTE_CHANNELS, Pipeline, category_label, notes_lines
+from jevlab.ops.pipeline import CLOSE_AUTHOR, ESCALATION_CHANNEL, Pipeline, category_label, notes_lines
 from jevlab.ops.questions import FIELD_TITLES
 from jevlab.ops.sla import minutes_left
 from jevlab.ops.store import ItemNotFoundError
 
 log = logging.getLogger(__name__)
 
-# 実際の Slack に流してよい疑似チャンネル（個人情報を伏せた見出しだけが投稿されるもの）
-MIRRORABLE: Final[tuple[str, ...]] = (*dict.fromkeys([*ROUTE_CHANNELS.values(), "#cs-その他"]), ESCALATION_CHANNEL)
+
+def mirrorable(settings: Settings) -> list[str]:
+    """実際の Slack に流してよい疑似チャンネル（分類ごとの振り分け先とエスカレーション。個人情報を伏せた見出しだけが投稿される）。"""
+    return [*dict.fromkeys(c.channel for c in settings.categories), ESCALATION_CHANNEL]
+
+
 # 受信した本文の上限（受付の上限に合わせる）
 MAX_BODY: Final = 4000
 _TICK_S: Final = 2.0
@@ -417,7 +421,7 @@ class SlackConnector:
             inbound=self.inbound
             if self.inbound_factory
             else DirectionStatus(state="unconfigured", detail="SLACK_APP_TOKEN と SLACK_BOT_TOKEN の両方が必要"),
-            mirrorable=list(MIRRORABLE),
+            mirrorable=mirrorable(self.pipeline.store.settings()),
             purge=self.purge_status,
         )
 
@@ -491,9 +495,10 @@ class SlackConnector:
         cursor = self._cursor(_POST_CURSOR, store.last_post_id(), enabled)
         if cursor is None or self._backing_off() or not await self._ensure_bot_user():
             return
+        allowed = set(mirrorable(settings))
         for post in store.posts_after(cursor):
             target = settings.slack.channel_map.get(post.channel)
-            item = self._item(post.item_id) if target and post.channel in MIRRORABLE else None
+            item = self._item(post.item_id) if target and post.channel in allowed else None
             if (
                 item is not None
                 and post.author == CLOSE_AUTHOR
@@ -503,7 +508,7 @@ class SlackConnector:
                 # エスカレーションの完了は、元の投稿のスレッドへの返信（_follow）で知らせるので流さない
                 store.put_meta(_POST_CURSOR, str(post.id))
                 continue
-            if target and post.channel in MIRRORABLE:
+            if target and post.channel in allowed:
                 try:
                     if post.channel == ESCALATION_CHANNEL and item is not None:
                         await self._escalation(post, item, target, settings)
@@ -618,7 +623,7 @@ class SlackConnector:
             name = staff[who].name if isinstance(who, str) and who in staff else "未割り当て"
             before, after = event.data.get("before"), event.data.get("after")
             fixed = (
-                f"。分類を {category_label(before)} から {category_label(after)} に修正"
+                f"。分類を {category_label(before, settings)} から {category_label(after, settings)} に修正"
                 if isinstance(before, str) and isinstance(after, str) and before != after
                 else ""
             )

@@ -86,6 +86,8 @@ class Item(BaseModel):
     sent_text: str | None = None
     answers: dict[str, AnswerView] = {}
     category: str | None = None
+    # 仕分けたときの分類の定義の版（Settings.categories_version）。無いのは分類を編集できるようになる前の件
+    category_version: str | None = None
     decided_by: Decider | None = None
     confidence: float | None = None
     # 抽出したチケット項目（注文番号など）。キーは項目 ID
@@ -354,7 +356,47 @@ class SimulatorSettings(BaseModel):
     fast: bool = False
 
 
+# ---- 分類とチャンネル ----
+
+_DEFAULT_CHANNELS: Final[dict[str, str]] = {
+    "inquiry": "#cs-問い合わせ",
+    "complaint": "#cs-クレーム",
+    "thanks": "#cs-お礼",
+    "other": "#cs-その他",
+}
+MAX_ACTIVE_CATEGORIES: Final = 9
+
+
+class CategoryDef(BaseModel):
+    """運用の分類。キーは作った後に変えない（過去の件はキーでつながる。名前は変えてよい）。"""
+
+    key: str = Field(min_length=1, max_length=30, pattern=r"^[a-z0-9_-]+$")
+    label: str = Field(min_length=1, max_length=30)
+    # Jev が読む説明（どういう問い合わせをこの分類にするか）
+    criteria: str = Field(min_length=1, max_length=300)
+    # 振り分け先の疑似チャンネル（Slack の割り当てはこの名前で決める）
+    channel: str = Field(min_length=2, max_length=40, pattern=r"^#\S+$")
+    # 廃止した分類は、仕分けの選択肢・確認のボタン・完了の選択から外す（過去の件の表示には残す）
+    active: bool = True
+
+
+def _default_categories() -> list[CategoryDef]:
+    from jevlab.apps.mail.questions import CATEGORY_LABELS, QUESTIONS
+
+    criteria = QUESTIONS["category"].criteria
+    if not isinstance(criteria, dict):
+        raise TypeError("メール仕分けの分類の説明が、キーごとの形ではありません")
+    return [
+        CategoryDef(key=k, label=label, criteria=str(criteria[k]), channel=_DEFAULT_CHANNELS[k])
+        for k, label in CATEGORY_LABELS.items()
+    ]
+
+
 class Settings(BaseModel):
+    # 分類の一覧と、どれにも当てはまらないときの受け皿（Jev が想定外の答えを返したときの振り分け先）
+    categories: list[CategoryDef] = Field(default_factory=_default_categories)
+    fallback_category: str = "other"
+
     guard: GuardSettings = GuardSettings()
     classify: ClassifySettings = ClassifySettings()
     kev_first: KevFirstSettings = KevFirstSettings()
@@ -384,6 +426,44 @@ class Settings(BaseModel):
         if isinstance(v, list) and all(isinstance(x, str) for x in v):
             return [{"id": f"staff{i + 1}", "name": x} for i, x in enumerate(v)]
         return v
+
+    @model_validator(mode="after")
+    def _check_categories(self) -> Settings:
+        keys = [c.key for c in self.categories]
+        if len(keys) != len(set(keys)):
+            raise ValueError("分類のキーが重複しています")
+        if "none" in keys:
+            raise ValueError("分類のキーに none は使えません")
+        active = [c for c in self.categories if c.active]
+        if not active:
+            raise ValueError("使う分類を 1 つ以上にしてください")
+        if len(active) > MAX_ACTIVE_CATEGORIES:
+            raise ValueError(f"使う分類は {MAX_ACTIVE_CATEGORIES} 個までです（確認の画面の 1〜9 キーに合わせる）")
+        if self.fallback_category not in {c.key for c in active}:
+            raise ValueError("受け皿の分類は、使っている分類から選んでください")
+        return self
+
+    def active_categories(self) -> list[CategoryDef]:
+        return [c for c in self.categories if c.active]
+
+    def category_label(self, key: str | None) -> str:
+        """分類の表示名（廃止した分類は「（廃止）」を付ける。知らないキーはそのまま）。"""
+        c = next((c for c in self.categories if c.key == key), None)
+        if c is None:
+            return key or "-"
+        return c.label if c.active else f"{c.label}（廃止）"
+
+    def route_channel(self, key: str | None) -> str:
+        """分類の振り分け先。知らない分類は受け皿の分類のチャンネル。"""
+        by_key = {c.key: c.channel for c in self.categories}
+        return by_key.get(key or "", by_key[self.fallback_category])
+
+    def categories_version(self) -> str:
+        """仕分けに使う分類の定義の版（使う分類のキーと説明から作る）。説明を変えると別の版になる。"""
+        import hashlib
+
+        raw = "\n".join(f"{c.key}\t{c.criteria}" for c in self.active_categories())
+        return hashlib.sha256(raw.encode()).hexdigest()[:12]
 
     @field_validator("staff")
     @classmethod

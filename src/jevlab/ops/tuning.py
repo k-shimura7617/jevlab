@@ -12,7 +12,10 @@ from typing import Final, Literal
 
 from pydantic import BaseModel
 
-from jevlab.ops.models import Item
+from jevlab.ops.models import Item, Settings
+
+# 分類を編集できるようになる前の件（版の記録がない）は、既定の分類で仕分けたものとみなす
+LEGACY_VERSION: Final = Settings().categories_version()
 
 TruthSource = Literal["human", "expected"]
 # これより件数が少ないと誤り率がぶれるため提案しない
@@ -59,9 +62,12 @@ def _model_prediction(item: Item) -> str | None:
     return str(a.prediction) if a is not None else None
 
 
-def labeled_items(items: Iterable[Item], source: TruthSource) -> list[Labeled]:
+def labeled_items(items: Iterable[Item], source: TruthSource, version: str | None = None) -> list[Labeled]:
+    """正解の分かっている件。version を渡すと、その分類の定義の版で仕分けた件だけにする。"""
     out: list[Labeled] = []
     for item in items:
+        if version is not None and (item.category_version or LEGACY_VERSION) != version:
+            continue
         predicted = _model_prediction(item)
         if predicted is None or item.confidence is None:
             continue
@@ -124,8 +130,10 @@ def curve(rows: list[Labeled], target_error: float, label: str | None) -> Curve:
     )
 
 
-def report(items: Iterable[Item], source: TruthSource, target_error: float, labels: Iterable[str]) -> TuningReport:
-    rows = labeled_items(items, source)
+def report(
+    items: Iterable[Item], source: TruthSource, target_error: float, labels: Iterable[str], version: str | None = None
+) -> TuningReport:
+    rows = labeled_items(items, source, version)
     # 分類ごとの閾値は「その分類と予測した件」で決める（自動で振り分けるかは予測した分類の閾値で判断するため）
     by_label = [curve([r for r in rows if r.predicted == k], target_error, k) for k in labels]
     return TuningReport(

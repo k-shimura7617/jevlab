@@ -1,5 +1,5 @@
 // 運用画面の共通状態（定義・全体の数字・設定）と、定期的に取り直すための仕組み
-import { createContext, useCallback, useContext, useEffect, useRef, useState, type ReactNode } from 'react'
+import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { errorMessage } from '../api'
 import { ops, type Meta, type Overview, type Settings } from './api'
 
@@ -115,10 +115,22 @@ export function OpsProvider({ children }: { children: ReactNode }) {
     setSettingsError(null)
   }, [])
 
+  // 分類は設定で編集できるので、定義（meta）の分類は設定から作り直す（保存した直後から画面に効かせる）
+  const metaView = useMemo(() => {
+    if (!meta || !settings) return meta
+    const active = settings.categories.filter((c) => c.active)
+    return {
+      ...meta,
+      categories: Object.fromEntries(active.map((c) => [c.key, c.label])),
+      category_labels: Object.fromEntries(settings.categories.map((c) => [c.key, c.active ? c.label : `${c.label}（廃止）`])),
+      route_channels: Object.fromEntries(settings.categories.map((c) => [c.key, c.channel])),
+    }
+  }, [meta, settings])
+
   return (
     <OpsContext.Provider
       value={{
-        meta,
+        meta: metaView,
         overview: overview.data,
         overviewError: overview.error,
         settings,

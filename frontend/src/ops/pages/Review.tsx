@@ -75,7 +75,7 @@ export function Review() {
   }, [done])
   const sending = useRef(false)
 
-  // 1〜4 キーで分類を確定し、次の件へ進む（デモで素早く捌けるように）
+  // 数字キーで分類を確定し、次の件へ進む（デモで素早く捌けるように）
   useEffect(() => {
     if (!current || !meta || current.id !== wanted) return
     const keys = Object.keys(meta.categories)
@@ -120,7 +120,7 @@ export function Review() {
       <div className="panel-head">
         <h1>分類の確認</h1>
         <span className="muted small">
-          1〜4 キーで確定、j / k で移動
+          数字キーで確定、j / k で移動
           {meta && `（${Object.values(meta.categories).map((l, i) => `${i + 1}: ${l}`).join(' ／ ')}）`}
         </span>
       </div>

@@ -138,7 +138,7 @@ function SimulatorPanel() {
 const SCENARIO: { title: string; body: string; to: string; link: string }[] = [
   { title: '受信を始める', body: '「受信を開始」を押す', to: '/ops/inbox', link: '受付箱を開く' },
   { title: '個人情報を確認する', body: '確かめて送る', to: '/ops/pii', link: '個人情報の確認' },
-  { title: '分類の確認を捌く', body: '1〜4 キーで確定', to: '/ops/review', link: '分類の確認' },
+  { title: '分類の確認を捌く', body: '数字キーで確定', to: '/ops/review', link: '分類の確認' },
   { title: 'エスカレーションに対応する', body: '担当を決めて完了', to: '/ops/escalations', link: 'エスカレーション' },
   { title: '振り分け結果を見る', body: '投稿を見る', to: '/ops/channels', link: 'チャンネル' },
   { title: '閾値を見直す', body: '確認結果から決める', to: '/ops/tuning', link: '閾値の調整' },

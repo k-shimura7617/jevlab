@@ -12,7 +12,6 @@ from typing import Annotated, Literal
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response
 from pydantic import BaseModel, Field
 
-from jevlab.apps.mail.questions import CATEGORY_LABELS
 from jevlab.core import kev_health, target
 from jevlab.core.generator import ClaudeModel, GenerateRequest, GenerationError, make_generator
 from jevlab.ops import audit, importers, misses, pii_eval, scope_draft, tuning
@@ -39,7 +38,6 @@ from jevlab.ops.pipeline import (
     FAST_WORKERS,
     INBOUND_CHANNEL,
     KEV_CONCURRENCY,
-    ROUTE_CHANNELS,
     Pipeline,
     category_label,
     priority_parts,
@@ -113,7 +111,10 @@ def _out(item: Item, leftover_threshold: float = 0.5, sla: SlaSettings | None = 
 
 
 class Meta(BaseModel):
+    # 使っている分類（キー → 表示名。並び順どおり）。仕分け・確認・完了の選択肢に使う
     categories: dict[str, str]
+    # 廃止した分類も含む表示名（過去の件の表示に使う）
+    category_labels: dict[str, str]
     statuses: list[str]
     channels: dict[str, str]
     pii_types: dict[str, str]
@@ -126,15 +127,17 @@ class Meta(BaseModel):
 
 
 @router.get("/meta")
-async def meta() -> Meta:
+async def meta(pipeline: PipelineDep) -> Meta:
+    settings = pipeline.store.settings()
     return Meta(
-        categories=CATEGORY_LABELS,
+        categories={c.key: c.label for c in settings.active_categories()},
+        category_labels={c.key: settings.category_label(c.key) for c in settings.categories},
         statuses=list(STATUSES),
         channels=dict(CHANNEL_LABELS),
         pii_types={t: PII_LABELS[t] for t in PII_TYPES},
         actions=list(ACTIONS),
         fields=FIELD_TITLES,
-        route_channels=ROUTE_CHANNELS,
+        route_channels={c.key: c.channel for c in settings.categories},
         escalation_channel=ESCALATION_CHANNEL,
         inbound_channel=INBOUND_CHANNEL,
         demo_count=len(demo_inbox()),
@@ -339,9 +342,10 @@ class ImportResult(BaseModel):
 
 @router.post("/import")
 async def import_rows(req: ImportRequest, pipeline: PipelineDep) -> ImportResult:
-    bad = sorted({r.category for r in req.rows if r.category is not None and r.category not in CATEGORY_LABELS})
+    known = {c.key for c in pipeline.store.settings().categories}
+    bad = sorted({r.category for r in req.rows if r.category is not None and r.category not in known})
     if bad:
-        raise HTTPException(status_code=422, detail=f"分類 {bad} は不明です（{' / '.join(CATEGORY_LABELS)}）")
+        raise HTTPException(status_code=422, detail=f"分類 {bad} は不明です（{' / '.join(sorted(known))}）")
     via = f"ファイル取り込み（{req.file_name}）" if req.file_name else "ファイル取り込み"
     if req.backfill:
         via += "・過去の問い合わせ（試算用）"
@@ -578,7 +582,9 @@ async def draft_scope(
     data = scope_draft.ScopeDraftInput(
         staff=staff,
         others=[s for s in settings.staff if s.id != staff_id and s.active],
-        handled=[(safe_title(i, limit=40), category_label(i.category)) for i in handled[: scope_draft.MAX_ITEMS]],
+        handled=[
+            (safe_title(i, limit=40), category_label(i.category, settings)) for i in handled[: scope_draft.MAX_ITEMS]
+        ],
     )
     slots = request.app.state.rewrite_slots
     try:
@@ -624,8 +630,6 @@ class Close(BaseModel):
 
 @router.post("/items/{item_id}/close")
 async def close(item_id: str, req: Close, pipeline: PipelineDep) -> ItemOut:
-    if req.category is not None and req.category not in CATEGORY_LABELS:
-        raise HTTPException(status_code=422, detail=f"分類 {req.category!r} は不明です")
     try:
         return _out(pipeline.close(item_id, req.category))
     except (ItemNotFoundError, ValueError) as e:
@@ -645,6 +649,36 @@ async def get_settings(pipeline: PipelineDep) -> Settings:
     return pipeline.store.settings()
 
 
+def _align_categories(prev: Settings, new: Settings, items: list[Item]) -> Settings:
+    """分類の編集に合わせて、ほかの設定を整える。
+
+    - 使った分類は削除させない（過去の件がキーでつながっているため。「使う」を外して廃止にする）
+    - チャンネル名を変えた分類は、Slack の割り当ても新しい名前に移す
+    - 廃止・削除した分類の閾値を消す
+    """
+    removed = {c.key for c in prev.categories} - {c.key for c in new.categories}
+    used = {i.category for i in items} | {str((i.expected or {}).get("category")) for i in items}
+    if removed & used:
+        names = "・".join(prev.category_label(k) for k in sorted(removed & used))
+        raise HTTPException(
+            status_code=422, detail=f"{names}は使った件があるので削除できません。「使う」を外して廃止にしてください"
+        )
+    moves = {
+        p.channel: n.channel
+        for p in prev.categories
+        for n in new.categories
+        if p.key == n.key and p.channel != n.channel
+    }
+    slack = new.slack
+    if moves:
+        slack = slack.model_copy(update={"channel_map": {moves.get(k, k): v for k, v in slack.channel_map.items()}})
+    active = {c.key for c in new.active_categories()}
+    classify = new.classify.model_copy(
+        update={"label_thresholds": {k: v for k, v in new.classify.label_thresholds.items() if k in active}}
+    )
+    return new.model_copy(update={"slack": slack, "classify": classify})
+
+
 @router.put("/settings")
 async def put_settings(settings: Settings, pipeline: PipelineDep) -> Settings:
     if settings.classify.review_threshold > settings.classify.auto_threshold:
@@ -657,6 +691,7 @@ async def put_settings(settings: Settings, pipeline: PipelineDep) -> Settings:
             detail=f"期限前に知らせる時間（{settings.slack.reminder_before_min} 分）は、"
             f"対応目安（{sla_min:g} 分）より短くしてください",
         )
+    settings = _align_categories(pipeline.store.settings(), settings, pipeline.store.items(limit=100_000))
     # 受信シミュレータの状態は専用の API（/simulator）でだけ変える。設定画面などが持っている古い値で上書きしない
     current = pipeline.store.settings().simulator
     saved = pipeline.store.put_settings(settings.model_copy(update={"simulator": current}))
@@ -731,8 +766,13 @@ async def tuning_report(
     pipeline: PipelineDep,
     source: tuning.TruthSource = "human",
     target_error: Annotated[float, Query(ge=0, le=0.5)] = 0.02,
+    all_versions: bool = False,
 ) -> tuning.TuningReport:
-    return tuning.report(pipeline.store.items(limit=10_000), source, target_error, CATEGORY_LABELS)
+    # 分類の説明を変えると確信度の意味も変わるので、既定ではいまの定義で仕分けた件だけで調べる
+    settings = pipeline.store.settings()
+    version = None if all_versions else settings.categories_version()
+    keys = [c.key for c in settings.active_categories()]
+    return tuning.report(pipeline.store.items(limit=10_000), source, target_error, keys, version)
 
 
 # ---- 監査ログ ----
