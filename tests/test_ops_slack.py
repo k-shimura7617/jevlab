@@ -518,3 +518,31 @@ async def test_escalation_close_replies_only_in_the_thread_with_masked_notes(tmp
     reply = new[0][0][1]
     assert reply.splitlines()[1:] == ["メモ:", "・お客様に電話済み 【電話番号】", "・代品を本日発送"]
     assert "090-1234-5678" not in reply
+
+
+@pytest.mark.anyio
+async def test_provisional_assignee_is_mentioned(tmp_path: Path) -> None:
+    api = FakeApi()
+    conn = make(tmp_path, api, None, outbound=True, channel_map={ESCALATION_CHANNEL: C_ESC})
+    with_staff(conn)
+    await conn.tick()
+    escalate(conn, assignee="tamura", assigned_by="auto", assign_provisional=True, assign_confidence=0.42)
+    await conn.tick()
+    reply = api.sent[1][1]
+    assert "<@U0TAMURA1>" in reply and "仮で割り当て" in reply and "0.42" in reply
+
+
+@pytest.mark.anyio
+async def test_close_stamps_every_post_of_the_item(tmp_path: Path) -> None:
+    api = FakeApi()
+    c_inq = "C0INQUIRY01"
+    conn = make(tmp_path, api, None, outbound=True, channel_map={"#cs-クレーム": C_COMPLAINT, "#cs-問い合わせ": c_inq})
+    with_staff(conn)
+    await conn.tick()
+    item_id = route(conn)
+    await conn.tick()
+    # 分類を直して完了すると、新しい分類のチャンネルにも投稿する → 元の投稿とその投稿の両方に ✅
+    conn.pipeline.close(item_id, "inquiry")
+    await conn.tick()
+    stamped = {(c, ts) for c, ts, _ in api.reactions}
+    assert (C_COMPLAINT, "1.0") in stamped and any(c == c_inq for c, _ in stamped)

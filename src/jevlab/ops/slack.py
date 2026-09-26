@@ -269,7 +269,11 @@ def assign_line(item: Item, settings: Settings) -> str:
     """
     staff = {s.id: s for s in settings.staff}
     if item.assignee:
-        how = "（自動で割り当て）" if item.assigned_by == "auto" else ""
+        if item.assign_provisional:
+            p = f"・確率 {item.assign_confidence:.2f}" if item.assign_confidence is not None else ""
+            how = f"（仮で割り当て{p}。違えば担当を変えてください）"
+        else:
+            how = "（自動で割り当て）" if item.assigned_by == "auto" else ""
         return f"{mention(staff.get(item.assignee))} 担当です{how}"
     dispatcher = settings.dispatcher_member()
     who = mention(dispatcher) if dispatcher else "（振り分け担当が未設定）"
@@ -445,7 +449,12 @@ class SlackConnector:
                         await self._parent(post, item, target, settings)
                     elif item is not None:
                         # 同じ件の 2 つ目以降の投稿（分類の修正・エスカレーションの完了など）は、リンクを付けて単独で流す
-                        await self._send(target, f"{post_text(post, item)}\n{link_text(item.id, settings)}")
+                        ts = await self._send(target, f"{post_text(post, item)}\n{link_text(item.id, settings)}")
+                        # 完了したら、この投稿にも ✅ を付けられるよう控えておく
+                        self.pipeline.store.update(
+                            item.id,
+                            lambda i, ref=(target, ts): i.model_copy(update={"slack_more": [*i.slack_more, ref]}),
+                        )
                     elif post.item_id is None:
                         await self._send(target, post_text(post, item))
                 except SlackSendError as e:
@@ -494,17 +503,19 @@ class SlackConnector:
         store.update(item.id, lambda i: i.model_copy(update={"slack_notified": True}))
 
     async def _mark_done(self, item: Item) -> None:
-        """完了した件の親の投稿に ✅ を付ける。
+        """完了した件で Slack に出した投稿（親と、分類の修正・完了などの投稿）すべてに ✅ を付ける。
 
         返信はもう送ったので、失敗してもやり直さない（やり直すと返信が二重になる）。エラーは画面に出す。
         """
-        if not (item.slack_channel and item.slack_ts):
-            return
-        try:
-            await asyncio.to_thread(self._api().add_reaction, item.slack_channel, item.slack_ts, DONE_REACTION)
-        except SlackSendError as e:
-            log.warning("完了のリアクションを付けられませんでした: %s", e)
-            self.outbound.last_error = f"{e}（reactions:write の権限があるか確かめてください）"
+        refs = ([(item.slack_channel, item.slack_ts)] if item.slack_channel and item.slack_ts else []) + list(
+            item.slack_more
+        )
+        for channel, ts in refs:
+            try:
+                await asyncio.to_thread(self._api().add_reaction, channel, ts, DONE_REACTION)
+            except SlackSendError as e:
+                log.warning("完了のリアクションを付けられませんでした: %s", e)
+                self.outbound.last_error = f"{e}（reactions:write の権限があるか確かめてください）"
 
     async def _follow(self, settings: Settings) -> None:
         """人が担当を変えた・対応を完了した件は、Slack のスレッドに書き足す。"""

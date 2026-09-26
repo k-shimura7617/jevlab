@@ -13,7 +13,7 @@
 | [0005](0005-candidate-selection-extraction.md) | 項目の抽出は「生成」ではなく「候補から選ばせる」 | 採用 |
 | [0006](0006-priority-in-code.md) | 優先度は観点ごとに判定し、重み付けはコードと画面で行う | 採用 |
 | [0007](0007-human-in-the-loop-queues.md) | 人の確認は目的別の 3 つの待ち行列と、抜き取り確認で行う | 採用 |
-| [0008](0008-assignee-auto-assign-threshold.md) | 担当者は確信度が高いときだけ自動で割り当て、人の割り当てを例として学ばせる | 採用（閾値は確率で判定。→ 0017） |
+| [0008](0008-assignee-auto-assign-threshold.md) | 担当者は確信度が高いときだけ自動で割り当て、人の割り当てを例として学ばせる | 採用（閾値は確率で判定。→ 0017。届かないときは仮で割り当て → 0025） |
 | [0009](0009-claude-cli-generator.md) | 文章の生成は、生成器の型の裏で claude -p（サブスク枠）を使う | 採用 |
 | [0010](0010-server-side-pii-draft.md) | 個人情報の確認の編集は、サーバ側に下書きとして保存する | 採用 |
 | [0011](0011-single-repo-vite-build.md) | 画面は同じリポジトリの Vite ビルドを FastAPI から配信する | 採用 |
@@ -30,6 +30,7 @@
 | [0022](0022-ops-dashboard-as-entry.md) | 運用ダッシュボードを入口にし、評価は /eval に移す | 採用 |
 | [0023](0023-worktree-and-pr-workflow.md) | 並行の作業は worktree と PR で分ける | 採用 |
 | [0024](0024-escalation-close-notice-in-thread-only.md) | エスカレーションの完了は、エスカレーションのスレッドだけで知らせる | 採用 |
+| [0025](0025-provisional-assignment.md) | 担当の推定が閾値に届かなくても、仮で割り当てる | 採用 |
 
 ## 運用のきまり
 
