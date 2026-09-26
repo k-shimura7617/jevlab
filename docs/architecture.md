@@ -136,7 +136,7 @@ flowchart LR
   - 最初の画面: `/`（運用ダッシュボード `/ops` に移る）
   - 評価ダッシュボード: `/eval`、`/eval/apps/:name`、`/eval/apps/:name/run`
   - 運用ダッシュボード: `/ops`、`/ops/inbox|pii|review|escalations|channels|staff|connectors|tuning|settings`、`/ops/items/:id`
-  - ツール: `/tools/tone`、`/tools/reply`（`?item=` でエスカレーションの件の問い合わせを入れる）、`/tools/contract`
+  - ツール: `/tools/tone`、`/tools/reply`（`?item=` で件の問い合わせを入れる。件の詳細の「返信前チェック」から開く）、`/tools/contract`
 - 運用の画面は 1.5 秒間隔のポーリングで更新します（`ops/state.tsx` の `usePolling`）。
 
 ## 3. 1 件の流れ

@@ -109,6 +109,12 @@ function QuickActions({
           エスカレーションで対応する
         </Link>
       )}
+      {item.sent_text !== null && item.status !== 'queued' && item.status !== 'processing' && (
+        // 問い合わせ（個人情報を伏せて Jev に送った本文）を入れて、返信前チェックを開く
+        <Link className="btn secondary" to={`/tools/reply?item=${encodeURIComponent(item.id)}`}>
+          返信前チェック
+        </Link>
+      )}
       {/@/.test(item.from_address) && (
         // jevlab はメールを送らない。お使いのメールソフトを、宛先と件名を入れた状態で開く
         <a className="btn secondary" href={replyHref(item)} target="_blank" rel="noopener noreferrer">

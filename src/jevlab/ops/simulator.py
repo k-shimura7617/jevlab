@@ -18,6 +18,7 @@ from jevlab.ops.pipeline import Pipeline
 log = logging.getLogger(__name__)
 
 DEMO_PATH: Final = Path(__file__).with_name("demo_inbox.jsonl")
+FAST_INTERVAL_S: Final = 0.1
 _VIA: Final = {"mail": "メール（support@komorebi.example）", "chat": "チャット（#お問い合わせ窓口）"}
 
 
@@ -50,8 +51,16 @@ def ingest_next(pipeline: Pipeline) -> bool:
         )
         return False
     req = inbox[cursor]
+    # 最後の 1 件を受信したら、その場で止める（次の周期を待たずに「受信中」を消す）
+    last = cursor + 1 >= len(inbox)
     store.update_settings(
-        lambda s: s.model_copy(update={"simulator": s.simulator.model_copy(update={"cursor": cursor + 1})})
+        lambda s: s.model_copy(
+            update={
+                "simulator": s.simulator.model_copy(
+                    update={"cursor": cursor + 1, **({"playing": False} if last else {})}
+                )
+            }
+        )
     )
     try:
         pipeline.ingest(req, via=_VIA.get(req.channel))
@@ -65,13 +74,10 @@ async def run_simulator(pipeline: Pipeline) -> None:
     while True:
         try:
             settings = pipeline.store.settings().simulator
-            if settings.playing and settings.fast:
-                # 間隔なしで残りを一度に受信する（最後まで流すと止まる）
-                while ingest_next(pipeline):
-                    pass
-            elif settings.playing:
+            if settings.playing:
                 ingest_next(pipeline)
-            delay = settings.interval_s if settings.playing else 0.5
+            # 高速は、進み具合が画面で追える程度の短い間隔で流す（一度にまとめると何が起きたか見えない）
+            delay = (FAST_INTERVAL_S if settings.fast else settings.interval_s) if settings.playing else 0.5
         except Exception:
             # 1 回の失敗でシミュレータ全体が止まらないよう記録して続ける
             log.exception("受信シミュレータの処理に失敗しました")

@@ -12,7 +12,7 @@ type Tab = 'all' | 'active' | 'human' | 'done' | 'error'
 const TABS: { id: Tab; label: string; statuses: Status[] | null }[] = [
   { id: 'all', label: 'すべて', statuses: null },
   { id: 'active', label: '処理中', statuses: ['queued', 'processing'] },
-  { id: 'human', label: '人の対応待ち', statuses: ['pii_review', 'review', 'escalated'] },
+  { id: 'human', label: '対応待ち', statuses: ['pii_review', 'review', 'escalated'] },
   { id: 'done', label: '振り分け済み・完了', statuses: ['routed', 'closed'] },
   { id: 'error', label: 'エラー', statuses: ['error'] },
 ]
