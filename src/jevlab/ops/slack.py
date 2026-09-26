@@ -269,8 +269,8 @@ def assign_line(item: Item, settings: Settings) -> str:
     if item.assignee:
         how = "（自動で割り当て）" if item.assigned_by == "auto" else ""
         return f"{mention(staff.get(item.assignee))} 担当です{how}"
-    dispatcher = settings.slack.dispatcher
-    who = mention(staff.get(dispatcher)) if dispatcher else "（振り分け担当が未設定）"
+    dispatcher = settings.dispatcher_member()
+    who = mention(dispatcher) if dispatcher else "（振り分け担当が未設定）"
     hint = f"（推定: {staff[item.assign_suggestion].name}）" if item.assign_suggestion in staff else ""
     return f"{who} 担当を決めてください{hint}"
 
@@ -544,12 +544,12 @@ class SlackConnector:
         対応目安は営業時間で数える（昼休み・夜間・休日は進まない）。
         """
         s = settings.slack
-        if not (self._enabled(settings) and s.reminder and s.dispatcher) or self._backing_off():
+        dispatcher = settings.dispatcher_member()
+        if not (self._enabled(settings) and s.reminder and dispatcher) or self._backing_off():
             return
         if time.monotonic() < self._next_remind:
             return
         self._next_remind = time.monotonic() + _REMIND_EVERY_S
-        staff = {m.id: m for m in settings.staff}
         now = datetime.now(UTC)
         for candidate in self.pipeline.store.items(["escalated"]):
             if candidate.assignee or candidate.slack_reminded or not candidate.slack_ts:
@@ -562,7 +562,7 @@ class SlackConnector:
                 continue
             left = minutes_left(item.received_at, now, settings.sla)
             when = f"対応目安まであと {left_text(left)}です" if left > 0 else "対応目安を過ぎています"
-            text = f"{mention(staff.get(s.dispatcher))} {when}。担当が未定です"
+            text = f"{mention(dispatcher)} {when}。担当が未定です"
             try:
                 await self._send(item.slack_channel or "", text, item.slack_ts)
             except SlackSendError as e:

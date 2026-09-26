@@ -93,12 +93,14 @@ function Handling({ item, onDone }: { item: Item; onDone: () => void }) {
           }}
         >
           <option value="">未割り当て</option>
-          {(settings?.staff ?? []).map((s) => (
-            <option key={s.id} value={s.id}>
-              {s.name}
-              {s.role ? `（${s.role}）` : ''}
-            </option>
-          ))}
+          {(settings?.staff ?? [])
+            .filter((s) => s.active || s.id === item.assignee)
+            .map((s) => (
+              <option key={s.id} value={s.id}>
+                {s.name}
+                {s.role ? `（${s.role}）` : ''}
+              </option>
+            ))}
         </select>
         <label htmlFor="note">メモ</label>
         <div className="row tight">
@@ -266,7 +268,7 @@ export function Escalations() {
             <span className="bulk-group">
               <select aria-label="一括で割り当てる担当者" value={target} onChange={(e) => chooseTarget(e.target.value)}>
                 <option value="">担当者を選ぶ</option>
-                {staff.map((s) => (
+                {staff.filter((s) => s.active).map((s) => (
                   <option key={s.id} value={s.id}>
                     {s.name}
                   </option>

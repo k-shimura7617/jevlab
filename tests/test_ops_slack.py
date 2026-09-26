@@ -477,3 +477,20 @@ async def test_lost_response_of_routed_parent_is_not_duplicated(tmp_path: Path) 
     await conn.tick()
     assert len(api.sent) == 1
     assert conn.pipeline.store.get(item_id).slack_ts == "1.0"
+
+
+@pytest.mark.anyio
+async def test_off_duty_dispatcher_is_not_called(tmp_path: Path) -> None:
+    api = FakeApi()
+    conn = make(tmp_path, api, None, outbound=True, channel_map={ESCALATION_CHANNEL: C_ESC})
+    with_staff(conn)
+    store = conn.pipeline.store
+    s = store.settings()
+    # 佐藤（振り分け担当）の担当をオフにすると、呼び出さない
+    staff = [m.model_copy(update={"active": m.id != "sato"}) for m in s.staff]
+    store.put_settings(s.model_copy(update={"staff": staff}))
+    await conn.tick()
+    escalate(conn)
+    await conn.tick()
+    reply = api.sent[1][1]
+    assert "U0SATO001" not in reply and "振り分け担当が未設定" in reply
