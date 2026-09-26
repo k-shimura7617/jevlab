@@ -261,3 +261,4 @@ td.body { min-width: 240px; white-space: pre-wrap; }
 
 /* 補足の「？」（説明は title で出す） */
 .hint { display: inline-grid; place-items: center; width: 16px; height: 16px; margin-left: 4px; border: 1px solid var(--line); border-radius: 50%; color: var(--muted); font-size: 11px; line-height: 1; cursor: help; vertical-align: middle; }
+.btn.disabled { opacity: 0.5; pointer-events: none; }

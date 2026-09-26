@@ -2,7 +2,8 @@ import { useEffect, useRef, useState } from 'react'
 import { Link, useSearchParams } from 'react-router'
 import { errorMessage } from '../api'
 import { pct, TARGET_SHORT, usd } from '../format'
-import { ops } from '../ops/api'
+import { ops, type Item } from '../ops/api'
+import { canMail, replyHref } from '../ops/mail'
 import { Page, useShell, useTitle } from '../shell'
 import { tools, type Level, type ReplyCheck, type ReplyMeta, type ReplyResult, type RewriteResult } from './api'
 import { Hint } from '../components/hint'
@@ -99,6 +100,8 @@ export function ReplyPage() {
   const [draft, setDraft] = useState('')
   const [policy, setPolicy] = useState<string | null>(null)
   const [policyOpen, setPolicyOpen] = useState(false)
+  // 運用の件から開いたときの件（判定した下書きで、その件にメールで返信する）
+  const [item, setItem] = useState<Item | null>(null)
   const [busy, setBusy] = useState(false)
   const [judged, setJudged] = useState<{ inquiry: string; draft: string; result: ReplyResult } | null>(null)
   const [rwBusy, setRwBusy] = useState(false)
@@ -124,6 +127,7 @@ export function ReplyPage() {
     ops
       .item(itemId)
       .then(({ item }) => {
+        setItem(item)
         if (item.sent_text === null) setError(`${item.id} は個人情報のため Jev に送っていないので、ここでは使えません`)
         else setInquiry(item.sent_text)
       })
@@ -241,6 +245,19 @@ export function ReplyPage() {
             }}
           />
           <div className="row judge-row">
+            {item && canMail(item) && (
+              // 判定した下書きのまま（判定の後に書き換えていない）なら、その内容でメールソフトを開く
+              <a
+                className={`btn secondary${judged && !stale ? '' : ' disabled'}`}
+                href={judged && !stale ? replyHref(item, judged.draft) : undefined}
+                aria-disabled={!judged || stale}
+                title={judged && !stale ? undefined : '判定してから使えます'}
+                target="_blank"
+                rel="noopener noreferrer"
+              >
+                この内容で返信
+              </a>
+            )}
             <button type="button" className="judge-btn" title="Ctrl+Enter" disabled={busy || !inquiry.trim() || !draft.trim() || !target} onClick={check}>
               {busy ? '判定中…' : '判定する'}
             </button>
