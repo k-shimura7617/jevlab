@@ -10,7 +10,7 @@ from jevlab.ops import misses, tuning
 from jevlab.ops import questions as oq
 from jevlab.ops.models import IngestRequest, Item, MissReport, Settings
 from jevlab.ops.pii import Span
-from jevlab.ops.pipeline import Pipeline, decide_route, priority_score, safe_title
+from jevlab.ops.pipeline import Pipeline, decide_route, priority_parts, priority_score, safe_title
 from jevlab.ops.store import Store
 
 
@@ -305,3 +305,15 @@ def test_miss_summary_suggests_threshold_and_extra_reviews() -> None:
     # いまの閾値で足りていれば上げない
     assert misses.suggest([0.9, 0.8], 1.0, 0.5) == 0.5
     assert misses.suggest([], 0.8, 0.5) is None
+
+
+def test_refund_priority_counts_only_when_refund_is_mentioned() -> None:
+    refund = AnswerView(
+        type="score", prediction=1, value=1.0, confidence=0.5, probabilities={"0": 0.3, "1": 0.4, "2": 0.3}
+    )
+    mentioned = AnswerView(type="noul", prediction=True, value=0.9)
+    silent = AnswerView(type="noul", prediction=False, value=0.1)
+    assert priority_parts({"refund": refund, "refund_mentioned": mentioned})["refund"] == 0.5
+    assert priority_parts({"refund": refund, "refund_mentioned": silent})["refund"] == 0.0
+    # ゲートの問いがない以前の件は、これまでどおり返金度を使う
+    assert priority_parts({"refund": refund})["refund"] == 0.5

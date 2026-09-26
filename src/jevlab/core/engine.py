@@ -114,6 +114,18 @@ class CalibrationBin(BaseModel):
     accuracy: float
 
 
+class NoulBias(BaseModel):
+    """Noul の偏りと、評価データでいちばんよく分けられる閾値（metrics.NoulBias と同じ項目）。"""
+
+    n_true: int
+    n_false: int
+    mean_yes_when_true: float | None
+    mean_yes_when_false: float | None
+    best_threshold: float
+    accuracy_at_best: float
+    accuracy_at_default: float
+
+
 class QuestionMetrics(BaseModel):
     id: str
     type: QuestionType
@@ -122,6 +134,7 @@ class QuestionMetrics(BaseModel):
     reliability: list[CalibrationBin] = []
     mae: float | None = None
     brier: float | None = None
+    bias: NoulBias | None = None
 
 
 class EvalReport(BaseModel):
@@ -257,8 +270,14 @@ def _question_metrics(qid: str, qtype: QuestionType, cases: list[CaseResult]) ->
                 }
             )
         case "noul":
+            probs = [v.value or 0.0 for v in views]
+            truths = [bool(y) for y in labels]
+            bias = metrics.noul_bias(probs, truths, NOUL_THRESHOLD) if probs else None
             return base.model_copy(
-                update={"brier": metrics.brier([v.value or 0.0 for v in views], [bool(y) for y in labels])}
+                update={
+                    "brier": metrics.brier(probs, truths),
+                    "bias": NoulBias(**bias.__dict__) if bias is not None else None,
+                }
             )
 
 
