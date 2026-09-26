@@ -112,7 +112,7 @@ function QuickActions({
       {item.sent_text !== null && item.status !== 'queued' && item.status !== 'processing' && (
         // 問い合わせ（個人情報を伏せて Jev に送った本文）を入れて、返信前チェックを開く
         <Link className="btn secondary" to={`/tools/reply?item=${encodeURIComponent(item.id)}`}>
-          返信前チェック
+          返信内容の検討
         </Link>
       )}
       {/@/.test(item.from_address) && (
