@@ -12,6 +12,8 @@ import { useOps } from './state'
 export interface AutoSave {
   draft: Settings | null
   set: (f: (s: Settings) => Settings) => void
+  /** いまの下書きを保存する（ボタンの操作の直後など）。 */
+  commit: () => Promise<void>
   /** 画面の外枠に付ける（中の欄のカーソルが外れた・選択が変わったときに保存する）。 */
   handlers: {
     onBlur: (e: FocusEvent) => void
@@ -115,5 +117,5 @@ export function useAutoSave(
     return () => window.removeEventListener('beforeunload', warn)
   }, [dirty])
 
-  return { draft, set, handlers, status, error }
+  return { draft, set, commit, handlers, status, error }
 }

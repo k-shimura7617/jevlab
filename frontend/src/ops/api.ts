@@ -109,6 +109,18 @@ export interface AssignStats {
   auto_assigned: number
   auto_changed: number
   pairs: { suggested: string | null; actual: string; count: number }[]
+  // 担当範囲の案の材料になる件の数（人が割り当てて完了した件）
+  handled_by_staff: Record<string, number>
+}
+
+/** 担当範囲の案（Claude が完了した件の見出しと分類から作る。保存はしない）。 */
+export interface ScopeDraft {
+  staff_id: string
+  scope: string
+  notes: string[]
+  based_on: number
+  model: string
+  latency_ms: number
 }
 
 export interface BulkResult {
@@ -260,6 +272,8 @@ export interface Settings {
     escalate_urgent: boolean
     // 分類の上位 2 つの差がこれ未満なら人が確認
     split_margin: number
+    insufficient_gate: boolean
+    insufficient_at: number
   }
   kev_first: { enabled: boolean; threshold: number }
   audit_rate: number
@@ -271,7 +285,7 @@ export interface Settings {
   simulator: { playing: boolean; interval_s: number; cursor: number }
   priority_weights: Record<string, number>
   staff: StaffMember[]
-  assign: { auto: boolean; threshold: number; use_examples: boolean; max_examples: number }
+  assign: { auto: boolean; threshold: number; use_examples: boolean; max_examples: number; scope_draft_min: number }
 }
 
 export interface CurvePoint {
@@ -418,6 +432,8 @@ export const ops = {
   bulkAssign: (ids: string[], assignee: string) => call<BulkResult>('POST', '/bulk/assign', { ids, assignee }),
   bulkPii: (ids: string[]) => call<BulkResult>('POST', '/bulk/pii', { ids }),
   assignment: () => call<AssignStats>('GET', '/assignment'),
+  scopeDraft: (staffId: string) =>
+    call<ScopeDraft>('POST', `/staff/${encodeURIComponent(staffId)}/scope-draft`, {}),
   tuning: (source: 'human' | 'expected', targetError: number) =>
     call<TuningReport>('GET', `/tuning?source=${source}&target_error=${targetError}`),
 }

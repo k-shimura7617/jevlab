@@ -10,6 +10,8 @@ from typing import Any
 import pytest
 from fastapi.testclient import TestClient
 
+from jevlab.core.generator import GeneratedText, GenerateRequest
+from jevlab.ops import api as ops_api
 from jevlab.ops.pipeline import Pipeline
 from jevlab.web import app
 
@@ -411,6 +413,7 @@ def test_decide_rejects_routed_items_outside_audit(client: TestClient) -> None:
         classify__review_threshold=0.0,
         classify__escalate_urgent=False,
         classify__escalate_strong_frustration=False,
+        classify__insufficient_gate=False,
         audit_rate=0.0,
     )
     item_id = ingest(client, "ラッピングはできますか？")
@@ -426,6 +429,7 @@ def test_routed_items_can_be_closed_and_count_as_human_checked(client: TestClien
         classify__review_threshold=0.0,
         classify__escalate_urgent=False,
         classify__escalate_strong_frustration=False,
+        classify__insufficient_gate=False,
         audit_rate=1.0,
     )
     kept = ingest(client, "ラッピングはできますか？")
@@ -456,6 +460,7 @@ def test_audit_decision_records_result_once(client: TestClient) -> None:
         classify__review_threshold=0.0,
         classify__escalate_urgent=False,
         classify__escalate_strong_frustration=False,
+        classify__insufficient_gate=False,
         audit_rate=1.0,
     )
     item_id = ingest(client, "ラッピングはできますか？")
@@ -465,6 +470,25 @@ def test_audit_decision_records_result_once(client: TestClient) -> None:
     assert client.post(f"/api/ops/items/{item_id}/decide", json={"category": other}).json()["audit_result"] == "fixed"
     # 確認済みの件はもう一度確認できない（結果が上書きされない）
     assert client.post(f"/api/ops/items/{item_id}/decide", json={"category": item["category"]}).status_code == 422
+
+
+def test_insufficient_gate_sends_confident_items_to_review(client: TestClient) -> None:
+    # 基準 0 なら、判断材料が足りない確率が少しでもあれば人の確認に回す
+    configure(
+        client,
+        guard__human_check=False,
+        classify__auto_threshold=0.0,
+        classify__review_threshold=0.0,
+        classify__escalate_urgent=False,
+        classify__escalate_strong_frustration=False,
+        classify__split_margin=0.0,
+        classify__insufficient_at=0.0,
+        audit_rate=0.0,
+    )
+    item = settle(client, ingest(client, "ラッピングはできますか？"))["item"]
+    assert item["status"] == "review"
+    assert item["reason"].startswith("判断材料が足りない")
+    assert "insufficient" in item["answers"] and "refund_mentioned" in item["answers"]
 
 
 def test_retry_after_error(client: TestClient) -> None:
@@ -758,6 +782,53 @@ def test_reported_miss_is_masked_in_titles_and_assign_examples(client: TestClien
     assert client.post(f"/api/ops/items/{item_id}/close", json={"category": "inquiry"}).status_code == 200
     examples = pipeline._assign_examples(pipeline.store.settings())
     assert examples[staff] and all("hana0503" not in t for t in examples[staff])
+
+
+class FakeScopeGenerator:
+    def __init__(self, structured: dict[str, object] | None) -> None:
+        self.structured = structured
+        self.requests: list[GenerateRequest] = []
+
+    async def generate(self, req: GenerateRequest) -> GeneratedText:
+        self.requests.append(req)
+        return GeneratedText("", self.structured, "claude-test", 5.0, 0.001, 10, 5)
+
+
+def test_scope_draft_uses_masked_titles_of_handled_items(client: TestClient, monkeypatch: pytest.MonkeyPatch) -> None:
+    configure(client, guard__human_check=False, classify__auto_threshold=1.0, classify__review_threshold=1.0)
+    configure(
+        client, assign={"auto": False, "threshold": 0.7, "use_examples": True, "max_examples": 3, "scope_draft_min": 2}
+    )
+    fake = FakeScopeGenerator({"scope": "返金・二重請求の確認", "notes": ["請求の件が多い"]})
+    monkeypatch.setattr(ops_api, "make_generator", lambda model: fake)
+    first = escalate_one(client, "至急、二重に請求されています")["id"]
+    # 1 件だけでは案を作れない
+    client.post(f"/api/ops/items/{first}/assign", json={"assignee": "takahashi"})
+    client.post(f"/api/ops/items/{first}/close", json={"category": "complaint"})
+    assert client.post("/api/ops/staff/takahashi/scope-draft", json={}).status_code == 422
+    second = escalate_one(client, "至急、090-1234-5678 まで返金の件で連絡ください")["id"]
+    client.post(f"/api/ops/items/{second}/assign", json={"assignee": "takahashi"})
+    client.post(f"/api/ops/items/{second}/close", json={"category": "complaint"})
+    assert client.get("/api/ops/assignment").json()["handled_by_staff"]["takahashi"] == 2
+    res = client.post("/api/ops/staff/takahashi/scope-draft", json={})
+    assert res.status_code == 200, res.text
+    assert res.json()["scope"] == "返金・二重請求の確認" and res.json()["based_on"] == 2
+    prompt = fake.requests[0].prompt
+    # 渡すのは伏せ字にした見出しと分類だけ（電話番号は伏せる）
+    assert "高橋" in prompt and "[クレーム]" in prompt and "090-1234-5678" not in prompt
+    assert client.post("/api/ops/staff/nobody/scope-draft", json={}).status_code == 404
+
+
+def test_scope_draft_reports_bad_generator_output(client: TestClient, monkeypatch: pytest.MonkeyPatch) -> None:
+    configure(client, guard__human_check=False, classify__auto_threshold=1.0, classify__review_threshold=1.0)
+    configure(
+        client, assign={"auto": False, "threshold": 0.7, "use_examples": True, "max_examples": 3, "scope_draft_min": 1}
+    )
+    monkeypatch.setattr(ops_api, "make_generator", lambda model: FakeScopeGenerator({"notes": []}))
+    item = escalate_one(client, "至急の件")["id"]
+    client.post(f"/api/ops/items/{item}/assign", json={"assignee": "sato"})
+    client.post(f"/api/ops/items/{item}/close", json={"category": "other"})
+    assert client.post("/api/ops/staff/sato/scope-draft", json={}).status_code == 502
 
 
 def test_escalation_close_is_posted_to_the_escalation_channel_with_notes(client: TestClient) -> None:

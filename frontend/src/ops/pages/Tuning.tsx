@@ -5,6 +5,7 @@ import { Hint } from '../../components/hint'
 import { pct } from '../../format'
 import { Page, useTitle } from '../../shell'
 import { ops, type Curve, type PiiMatrix, type Settings } from '../api'
+import { CONFIDENCE_NOTE } from '../format'
 import { useOps, usePolling } from '../state'
 
 const W = 520
@@ -257,6 +258,7 @@ export function Tuning() {
               <span className="lg target">目標の誤り率</span>
               <span className="lg current">いまの閾値</span>
               <span className="lg rec">提案</span>
+              <Hint text={CONFIDENCE_NOTE} />
             </div>
             <div className="curves">
               <div className="curve-card" data-testid="curve-overall">

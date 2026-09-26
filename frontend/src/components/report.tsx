@@ -1,4 +1,4 @@
-import type { AnswerView, AppInfo, CaseResult, EvalReport, QuestionInfo, QuestionMetrics } from '../api'
+import type { AnswerView, AppInfo, CaseResult, EvalReport, NoulBias, QuestionInfo, QuestionMetrics } from '../api'
 import { answerConfidence, answerKey, answerProbabilities, optionColor, optionLabel, pct } from '../format'
 
 // 「一致」は想定ラベル（作成したダミー）と同じだったという意味で、モデルの正誤そのものではない
@@ -13,8 +13,17 @@ export function subMetric(m: QuestionMetrics): string {
     case 'score':
       return `MAE ${f(m.mae)} ／ ECE ${f(m.ece)}`
     case 'noul':
-      return `Brier ${f(m.brier)}`
+      return [`Brier ${f(m.brier)}`, ...(m.bias ? biasNotes(m.bias) : [])].join(' ／ ')
   }
+}
+
+/** Noul の偏りの短い説明。「いいえ」が正解の件でも P(はい) が高ければ、「はい」に寄っている。 */
+function biasNotes(b: NoulBias): string[] {
+  const notes: string[] = []
+  if (b.mean_yes_when_false !== null) notes.push(`「いいえ」の件の P(はい) 平均 ${b.mean_yes_when_false.toFixed(2)}`)
+  if (b.best_threshold !== 0.5 && b.accuracy_at_best > b.accuracy_at_default)
+    notes.push(`閾値 ${b.best_threshold.toFixed(2)} なら ${pct(b.accuracy_at_default, 0)}→${pct(b.accuracy_at_best, 0)}`)
+  return notes
 }
 
 const byId = (info: AppInfo) => new Map(info.questions.map((q) => [q.id, q]))

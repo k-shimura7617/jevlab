@@ -1,6 +1,8 @@
+import { useState } from 'react'
+import { errorMessage } from '../../api'
 import { pct } from '../../format'
 import { Page, useTitle } from '../../shell'
-import { ops, type Settings, type StaffMember } from '../api'
+import { ops, type ScopeDraft, type Settings, type StaffMember } from '../api'
 import { useAutoSave } from '../autosave'
 import { SaveState } from '../components'
 import { staffName } from '../format'
@@ -11,13 +13,22 @@ const newId = () => `staff-${Date.now().toString(36)}`
 function StaffRow({
   member,
   assigned,
+  handled,
+  need,
+  drafting,
   onChange,
   onRemove,
+  onDraft,
 }: {
   member: StaffMember
   assigned: number
+  // 担当範囲の案の材料になる、人が割り当てて完了した件の数と、案を作れる件数
+  handled: number
+  need: number
+  drafting: boolean
   onChange: (m: StaffMember) => void
   onRemove: () => void
+  onDraft: () => void
 }) {
   const field = (key: 'name' | 'role', label: string, placeholder: string) => (
     <input
@@ -49,6 +60,15 @@ function StaffRow({
           placeholder="例: 配送の遅れ・誤配送・在庫の確認"
           onChange={(e) => onChange({ ...member, scope: e.target.value })}
         />
+        <button
+          type="button"
+          className="link-btn small"
+          disabled={handled < need || drafting}
+          title={handled < need ? `完了 ${need} 件から作れます` : undefined}
+          onClick={onDraft}
+        >
+          {drafting ? '案を作成中…' : `完了 ${handled}${handled < need ? `/${need}` : ''} 件から案を作る`}
+        </button>
       </td>
       <td>
         <input
@@ -98,11 +118,30 @@ export function Staff() {
   const escalated = usePolling(() => ops.items(['escalated']), 5000)
   const auto = useAutoSave(staffChanged, mergeStaff, staffInvalid)
   const { draft, set } = auto
+  // 担当範囲の案（Claude）。採用すると一覧の担当範囲に入り、そのまま保存する
+  const [proposal, setProposal] = useState<ScopeDraft | null>(null)
+  const [drafting, setDrafting] = useState<string | null>(null)
+  const [draftError, setDraftError] = useState<string | null>(null)
   if (!draft || !settings) return <Page crumbs={[{ label: '運用', to: '/ops' }, { label: '担当者' }]}>{settingsError ?? '読み込み中…'}</Page>
   const badSlack = draft.staff.some(badSlackId)
   const a = draft.assign
   const st = stats.data
   const assignedCount = (id: string) => (escalated.data ?? []).filter((i) => i.assignee === id).length
+  const makeDraft = (staffId: string) => {
+    if (drafting) return
+    setDrafting(staffId)
+    setDraftError(null)
+    ops
+      .scopeDraft(staffId)
+      .then(setProposal)
+      .catch((e: unknown) => setDraftError(errorMessage(e)))
+      .finally(() => setDrafting(null))
+  }
+  const adopt = (p: ScopeDraft) => {
+    set((s) => ({ ...s, staff: s.staff.map((x) => (x.id === p.staff_id ? { ...x, scope: p.scope } : x)) }))
+    void auto.commit()
+    setProposal(null)
+  }
   return (
     <Page crumbs={[{ label: '運用', to: '/ops' }, { label: '担当者' }]}>
       <div {...auto.handlers}>
@@ -135,13 +174,47 @@ export function Staff() {
                   key={m.id}
                   member={m}
                   assigned={assignedCount(m.id)}
+                  handled={st?.handled_by_staff[m.id] ?? 0}
+                  need={a.scope_draft_min}
+                  drafting={drafting === m.id}
                   onChange={(next) => set((s) => ({ ...s, staff: s.staff.map((x, j) => (j === i ? next : x)) }))}
                   onRemove={() => set((s) => ({ ...s, staff: s.staff.filter((_, j) => j !== i) }))}
+                  onDraft={() => makeDraft(m.id)}
                 />
               ))}
             </tbody>
           </table>
         </div>
+        {draftError && <div className="error small">{draftError}</div>}
+        {proposal && (
+          <div className="scope-proposal" data-testid="scope-proposal">
+            <h3>
+              {staffName(draft.staff, proposal.staff_id)}の担当範囲の案<span className="muted small">（完了 {proposal.based_on} 件から・{proposal.model}）</span>
+            </h3>
+            <textarea
+              aria-label="担当範囲の案"
+              rows={2}
+              maxLength={300}
+              value={proposal.scope}
+              onChange={(e) => setProposal({ ...proposal, scope: e.target.value })}
+            />
+            {proposal.notes.length > 0 && (
+              <ul className="small muted">
+                {proposal.notes.map((n, i) => (
+                  <li key={i}>{n}</li>
+                ))}
+              </ul>
+            )}
+            <div className="row">
+              <button type="button" disabled={!proposal.scope.trim()} onClick={() => adopt(proposal)}>
+                この案を使う
+              </button>
+              <button type="button" className="secondary" onClick={() => setProposal(null)}>
+                閉じる
+              </button>
+            </div>
+          </div>
+        )}
         <div className="row">
           <button type="button" className="secondary" onClick={() => set((s) => ({ ...s, staff: [...s.staff, { id: newId(), name: '', role: '', scope: '', active: true }] }))}>
             ＋ 担当者を追加
@@ -171,6 +244,22 @@ export function Staff() {
         </label>
         <label className="small block">
           <input type="checkbox" checked={a.use_examples} onChange={(e) => set((s) => ({ ...s, assign: { ...s.assign, use_examples: e.target.checked } }))} /> 最近完了した件（{a.max_examples} 件まで）を例として渡す
+        </label>
+        <label className="small block">
+          担当範囲の案は完了{' '}
+          <input
+            type="number"
+            className="num-input"
+            min={1}
+            max={200}
+            value={a.scope_draft_min}
+            aria-label="担当範囲の案を作れる完了件数"
+            onChange={(e) => {
+              const v = Math.round(Number(e.target.value))
+              if (Number.isFinite(v) && v >= 1 && v <= 200) set((s) => ({ ...s, assign: { ...s.assign, scope_draft_min: v } }))
+            }}
+          />{' '}
+          件から作れる
         </label>
       </section>
 

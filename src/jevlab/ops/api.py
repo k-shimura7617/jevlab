@@ -14,7 +14,8 @@ from pydantic import BaseModel, Field
 
 from jevlab.apps.mail.questions import CATEGORY_LABELS
 from jevlab.core import kev_health, target
-from jevlab.ops import importers, misses, pii_eval, tuning
+from jevlab.core.generator import ClaudeModel, GenerateRequest, GenerationError, make_generator
+from jevlab.ops import importers, misses, pii_eval, scope_draft, tuning
 from jevlab.ops.models import (
     CHANNEL_LABELS,
     STATUSES,
@@ -28,7 +29,16 @@ from jevlab.ops.models import (
     Status,
 )
 from jevlab.ops.pii import ACTIONS, PII_LABELS, PII_TYPES, PiiType, Span
-from jevlab.ops.pipeline import ESCALATION_CHANNEL, INBOUND_CHANNEL, ROUTE_CHANNELS, Pipeline, priority_parts
+from jevlab.ops.pipeline import (
+    ESCALATION_CHANNEL,
+    EXAMPLE_DECISIONS,
+    INBOUND_CHANNEL,
+    ROUTE_CHANNELS,
+    Pipeline,
+    category_label,
+    priority_parts,
+    safe_title,
+)
 from jevlab.ops.questions import FIELD_TITLES
 from jevlab.ops.simulator import demo_inbox, ingest_next
 from jevlab.ops.sla import minutes_left
@@ -505,11 +515,16 @@ class AssignStats(BaseModel):
     auto_assigned: int
     auto_changed: int
     pairs: list[AssignPair]
+    # 担当範囲の案の材料になる件の数（人が割り当てて完了し、個人情報の確認を通った件）
+    handled_by_staff: dict[str, int] = {}
 
 
 @router.get("/assignment")
 async def assignment_stats(pipeline: PipelineDep) -> AssignStats:
     closed = [i for i in pipeline.store.items(["closed"], limit=10_000) if i.assignee]
+    handled = Counter(
+        i.assignee for i in closed if i.assignee and i.assigned_by == "human" and i.pii_decision in EXAMPLE_DECISIONS
+    )
     # 推定の当たり具合は、人が担当を決めた件だけで測る（自動で割り当てたままの件は必ず一致するため除く）
     judged = [i for i in closed if i.assign_suggestion is not None and i.assigned_by == "human"]
     auto = [i for i in pipeline.store.items(limit=10_000) if i.auto_assigned]
@@ -521,6 +536,57 @@ async def assignment_stats(pipeline: PipelineDep) -> AssignStats:
         auto_assigned=len(auto),
         auto_changed=sum(1 for i in auto if i.assignee != i.assign_suggestion),
         pairs=[AssignPair(suggested=s, actual=a, count=n) for (s, a), n in pairs.most_common(10)],
+        handled_by_staff=dict(handled),
+    )
+
+
+class ScopeDraftRequest(BaseModel):
+    model: ClaudeModel = "sonnet"
+
+
+@router.post("/staff/{staff_id}/scope-draft")
+async def draft_scope(
+    staff_id: str, req: ScopeDraftRequest, request: Request, pipeline: PipelineDep
+) -> scope_draft.ScopeDraft:
+    """担当者が対応を完了した件の見出し（伏せ字）と分類から、担当範囲の案を Claude に作らせる。保存はしない。"""
+    settings = pipeline.store.settings()
+    staff = next((s for s in settings.staff if s.id == staff_id), None)
+    if staff is None:
+        raise HTTPException(status_code=404, detail=f"担当者 {staff_id!r} は登録されていません")
+    handled = scope_draft.handled_items(
+        pipeline.store.items(["closed"], limit=2000), staff_id, sorted(EXAMPLE_DECISIONS)
+    )
+    need = settings.assign.scope_draft_min
+    if len(handled) < need:
+        raise HTTPException(status_code=422, detail=f"完了した件が {len(handled)} 件です（{need} 件から作れます）")
+    data = scope_draft.ScopeDraftInput(
+        staff=staff,
+        others=[s for s in settings.staff if s.id != staff_id and s.active],
+        handled=[(safe_title(i, limit=40), category_label(i.category)) for i in handled[: scope_draft.MAX_ITEMS]],
+    )
+    slots = request.app.state.rewrite_slots
+    try:
+        generator = make_generator(req.model)
+        async with slots:
+            out = await generator.generate(
+                GenerateRequest(
+                    system=scope_draft.SYSTEM, prompt=scope_draft.build_prompt(data), schema=scope_draft.SCHEMA
+                )
+            )
+    except GenerationError as e:
+        raise HTTPException(status_code=502, detail=f"担当範囲の案を作れませんでした: {e}") from e
+    result = out.structured or {}
+    scope = result.get("scope")
+    if not isinstance(scope, str) or not scope.strip():
+        raise HTTPException(status_code=502, detail=f"担当範囲の案の形が想定と違います: {out.text[:200]}")
+    notes = result.get("notes")
+    return scope_draft.ScopeDraft(
+        staff_id=staff_id,
+        scope=scope.strip()[: scope_draft.MAX_SCOPE],
+        notes=[str(n) for n in notes] if isinstance(notes, list) else [],
+        based_on=len(data.handled),
+        model=out.model,
+        latency_ms=out.latency_ms,
     )
 
 

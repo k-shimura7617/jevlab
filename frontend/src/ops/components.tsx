@@ -8,6 +8,7 @@ import {
   categoryColor,
   CHANNEL_ICON,
   CHANNEL_SHORT,
+  CONFIDENCE_NOTE,
   DECIDER_LABELS,
   PRIORITY_LABELS,
   PRIORITY_LEVEL_LABELS,
@@ -33,7 +34,9 @@ export function CategoryTag({ meta, item, showConfidence = true }: { meta: Meta 
     <span className="cat-tag" style={{ '--cat': categoryColor(item.category) } as CSSProperties}>
       {meta?.categories[item.category] ?? item.category}
       {showConfidence && item.confidence !== null && item.decided_by !== 'human' && (
-        <span className="conf">{pct(item.confidence, 0)}</span>
+        <span className="conf" title={CONFIDENCE_NOTE}>
+          {pct(item.confidence, 0)}
+        </span>
       )}
       {item.decided_by && <span className="by">{DECIDER_LABELS[item.decided_by]}</span>}
     </span>

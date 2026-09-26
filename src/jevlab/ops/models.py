@@ -207,6 +207,10 @@ class ClassifySettings(BaseModel):
     escalate_urgent: bool = True
     # 分類の上位 2 つの確率の差がこれ未満なら、確信度にかかわらず人が確認する（判断が割れている）
     split_margin: float = Field(0.1, ge=0, le=1)
+    # 「本文だけでは種類を決める情報が足りない」の確率がこれ以上なら、自動にせず人が確認する。
+    # Jev は「当てはまる」に寄りやすいので、問題の側を yes にした問いにして安全側に倒す
+    insufficient_gate: bool = True
+    insufficient_at: float = Field(0.6, ge=0, le=1)
 
     @field_validator("label_thresholds")
     @classmethod
@@ -265,6 +269,8 @@ class AssignSettings(BaseModel):
     # 担当者ごとに、最近対応を完了した件を判定の例として添える（人の割り当てから精度を上げる）
     use_examples: bool = True
     max_examples: int = Field(3, ge=0, le=10)
+    # 人が割り当てて完了した件がこの数に達した担当者は、担当範囲の案を Claude に作らせられる
+    scope_draft_min: int = Field(10, ge=1, le=200)
 
 
 class KevFirstSettings(BaseModel):

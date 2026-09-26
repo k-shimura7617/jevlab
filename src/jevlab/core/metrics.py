@@ -49,6 +49,47 @@ def reliability(confidences: Sequence[float], correct: Sequence[bool], n_bins: i
     return [make(i) for i in range(n_bins)]
 
 
+@dataclass(frozen=True)
+class NoulBias:
+    """Noul の偏り。Jev は「当てはまる」に寄りがちなので、正解が否の件の P(はい) の平均で見る。"""
+
+    n_true: int
+    n_false: int
+    # 正解が「はい」／「いいえ」の件の、P(はい) の平均（その側の件がなければ None）
+    mean_yes_when_true: float | None
+    mean_yes_when_false: float | None
+    # はい・いいえの両側の正解率の平均がいちばん高い閾値（同点なら 0.5 に近い方）
+    best_threshold: float
+    accuracy_at_best: float
+    accuracy_at_default: float
+
+
+_THRESHOLDS = [round(0.05 * i, 2) for i in range(1, 20)]
+
+
+def _balanced_accuracy(probs: Sequence[float], labels: Sequence[bool], threshold: float) -> float:
+    """はい・いいえの両側の正解率の平均（片側しかなければ、その側の正解率）。"""
+    sides = [[(p >= threshold) == y for p, y in zip(probs, labels, strict=True) if y is side] for side in (True, False)]
+    rates = [fmean(s) for s in sides if s]
+    return fmean(rates) if rates else 0.0
+
+
+def noul_bias(probs: Sequence[float], labels: Sequence[bool], default: float = 0.5) -> NoulBias:
+    """質問ごとに、P(はい) の偏りと、評価データで最もよく分けられる閾値を求める。"""
+    yes = [p for p, y in zip(probs, labels, strict=True) if y]
+    no = [p for p, y in zip(probs, labels, strict=True) if not y]
+    best = max(_THRESHOLDS, key=lambda t: (_balanced_accuracy(probs, labels, t), -abs(t - default)))
+    return NoulBias(
+        n_true=len(yes),
+        n_false=len(no),
+        mean_yes_when_true=fmean(yes) if yes else None,
+        mean_yes_when_false=fmean(no) if no else None,
+        best_threshold=best,
+        accuracy_at_best=_balanced_accuracy(probs, labels, best),
+        accuracy_at_default=_balanced_accuracy(probs, labels, default),
+    )
+
+
 def ece(bins: Sequence[Bin]) -> float:
     """Expected Calibration Error。確信度と正解率のずれの加重平均。0 に近いほど較正が良い。"""
     total = sum(b.count for b in bins)
