@@ -163,12 +163,15 @@ function SlackPanel() {
           onChange={(e) => setEdit({ ...draft, dispatcher: e.target.value || null })}
         >
           <option value="">未設定</option>
-          {settings.staff.map((m) => (
-            <option key={m.id} value={m.id}>
-              {m.name}
-              {m.slack_user_id ? '' : '（Slack ID なし）'}
-            </option>
-          ))}
+          {settings.staff
+            .filter((m) => m.active || m.id === draft.dispatcher)
+            .map((m) => (
+              <option key={m.id} value={m.id}>
+                {m.name}
+                {m.active ? '' : '（担当オフ）'}
+                {m.slack_user_id ? '' : '（Slack ID なし）'}
+              </option>
+            ))}
         </select>
         <label htmlFor="slack-remind">担当未定の知らせ</label>
         <label className="small">

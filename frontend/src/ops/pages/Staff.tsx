@@ -29,7 +29,15 @@ function StaffRow({
     />
   )
   return (
-    <tr data-testid="staff-row">
+    <tr data-testid="staff-row" className={member.active ? undefined : 'muted'}>
+      <td>
+        <input
+          type="checkbox"
+          aria-label={`${member.name || '新しい担当者'}の担当オン`}
+          checked={member.active}
+          onChange={(e) => onChange({ ...member, active: e.target.checked })}
+        />
+      </td>
       <td>{field('name', '名前', '例: 山本')}</td>
       <td>{field('role', '所属・役割', '例: 配送・在庫')}</td>
       <td className="scope">
@@ -134,6 +142,7 @@ export function Staff() {
           <table className="staff-table">
             <thead>
               <tr>
+                <th>担当</th>
                 <th>名前</th>
                 <th>所属・役割</th>
                 <th>担当範囲（Jev が読む説明）</th>
@@ -156,7 +165,7 @@ export function Staff() {
           </table>
         </div>
         <div className="row">
-          <button type="button" className="secondary" onClick={() => set((s) => ({ ...s, staff: [...s.staff, { id: newId(), name: '', role: '', scope: '' }] }))}>
+          <button type="button" className="secondary" onClick={() => set((s) => ({ ...s, staff: [...s.staff, { id: newId(), name: '', role: '', scope: '', active: true }] }))}>
             ＋ 担当者を追加
           </button>
           {draft.staff.some((s) => !s.name.trim()) && <span className="error small">名前が空の担当者があります</span>}

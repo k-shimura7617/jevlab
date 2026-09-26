@@ -223,6 +223,22 @@ def test_escalation_assign_note_close(client: TestClient) -> None:
     assert client.post(f"/api/ops/items/{item_id}/close", json={"category": None}).status_code == 422
 
 
+def test_off_duty_staff_are_not_suggested_or_assigned(client: TestClient) -> None:
+    settings = client.get("/api/ops/settings").json()
+    # 鈴木だけ担当オン。推定は鈴木か「該当なし」に限られ、ほかの人には割り当てられない
+    for m in settings["staff"]:
+        m["active"] = m["id"] == "suzuki"
+    client.put("/api/ops/settings", json=settings)
+    configure(client, guard__human_check=False, classify__auto_threshold=1.0, classify__review_threshold=1.0)
+    item_id = ingest(client, "至急連絡ください")
+    item = settle(client, item_id)["item"]
+    assert item["status"] == "escalated"
+    assert item["assign_suggestion"] in {None, "suzuki"}
+    res = client.post(f"/api/ops/items/{item_id}/assign", json={"assignee": "sato"})
+    assert res.status_code == 422 and "オフ" in res.text
+    assert client.post(f"/api/ops/items/{item_id}/assign", json={"assignee": "suzuki"}).status_code == 200
+
+
 def test_disconnected_connector_rejects_ingest(client: TestClient) -> None:
     settings = client.get("/api/ops/settings").json()
     settings["connectors"]["mail"] = False

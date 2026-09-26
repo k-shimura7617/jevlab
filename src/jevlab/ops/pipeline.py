@@ -411,7 +411,7 @@ class Pipeline:
             return
         text = item.text
         questions = oq.classify_questions(oq.field_candidates(text))
-        assignee_q = oq.assignee_question(settings.staff, self._assign_examples(settings))
+        assignee_q = oq.assignee_question(settings.on_duty(), self._assign_examples(settings))
         if assignee_q is not None:
             questions = {**questions, oq.ASSIGNEE_ID: assignee_q}
         try:
@@ -453,7 +453,7 @@ class Pipeline:
         state = oq.classify_state(body)
         questions = oq.classify_questions(candidates)
         # 担当者の推定も同じ問い合わせで聞いておく（エスカレーションになったときだけ使う）
-        assignee_q = oq.assignee_question(settings.staff, self._assign_examples(settings))
+        assignee_q = oq.assignee_question(settings.on_duty(), self._assign_examples(settings))
         if assignee_q is not None:
             questions = {**questions, oq.ASSIGNEE_ID: assignee_q}
         chosen = force_target or settings.classify.target
@@ -574,7 +574,7 @@ class Pipeline:
         if view is None:
             return None, None
         key = str(view.prediction)
-        known = {s.id for s in settings.staff}
+        known = {s.id for s in settings.on_duty()}
         # 確信度は選択肢の数（担当者の人数）で意味が変わるため、推定した担当の確率で判断する。
         # 確率がなければ None（自動では割り当てない）
         p = view.probabilities.get(key)
@@ -591,12 +591,12 @@ class Pipeline:
         # 仕分けを待っている間に担当者が変わっていることがあるので、最新の設定で確かめる
         settings = self.store.settings()
         a = settings.assign
-        if item.assign_suggestion is not None and item.assign_suggestion not in {s.id for s in settings.staff}:
+        if item.assign_suggestion is not None and item.assign_suggestion not in {s.id for s in settings.on_duty()}:
             item = self.store.update(item.id, lambda i: i.model_copy(update={"assign_suggestion": None}))
         name = self.staff_name(item.assign_suggestion, settings)
         conf = item.assign_confidence or 0.0
-        if not settings.staff:
-            self.store.add_event(item.id, "assign", "system", "担当者が登録されていないため、担当は推定していません")
+        if not settings.on_duty():
+            self.store.add_event(item.id, "assign", "system", "担当中の担当者がいないため、担当は推定していません")
         elif item.assign_suggestion is None:
             self.store.add_event(
                 item.id, "assign", "system", "担当の推定: 該当する担当者なし（手動で割り当ててください）"
@@ -745,6 +745,8 @@ class Pipeline:
         settings = self.store.settings()
         if assignee and assignee not in {s.id for s in settings.staff}:
             raise ValueError(f"担当者 {assignee!r} は登録されていません")
+        if assignee and assignee not in {s.id for s in settings.on_duty()}:
+            raise ValueError(f"{self.staff_name(assignee, settings)} は担当がオフです")
         item = self.store.get(item_id)
         if item.status != "escalated":
             raise ValueError(f"{item_id} はエスカレーション中ではありません（状態: {item.status}）")

@@ -224,6 +224,8 @@ class StaffMember(BaseModel):
     scope: str = Field("", max_length=300)
     # Slack のユーザー ID（U…）。あればエスカレーションのスレッドでメンションする
     slack_user_id: str = Field("", pattern=r"^$|^[UW][A-Z0-9]{6,20}$")
+    # 担当するか。オフの人は一覧に残したまま、推定の選択肢・割り当て・振り分け担当（当番）から外す
+    active: bool = True
 
 
 MAX_STAFF: Final = 100
@@ -352,6 +354,14 @@ class Settings(BaseModel):
     priority_weights: dict[str, float] = {"frustration": 1.0, "urgent": 1.5, "refund": 0.8, "publicity": 1.2}
     staff: list[StaffMember] = list(DEFAULT_STAFF)
     assign: AssignSettings = AssignSettings()
+
+    def on_duty(self) -> list[StaffMember]:
+        """担当がオンの担当者。"""
+        return [s for s in self.staff if s.active]
+
+    def dispatcher_member(self) -> StaffMember | None:
+        """振り分け担当（当番）。担当がオフなら None（未設定と同じ扱い）。"""
+        return next((s for s in self.on_duty() if s.id == self.slack.dispatcher), None)
 
     @field_validator("staff", mode="before")
     @classmethod

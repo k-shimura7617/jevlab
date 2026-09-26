@@ -96,6 +96,8 @@ export interface StaffMember {
   scope: string
   // Slack のユーザー ID（U…）。空なら Slack ではメンションせず名前だけ書く
   slack_user_id?: string
+  // 担当するか。オフの人は推定・割り当て・振り分け担当（当番）から外れる
+  active: boolean
 }
 
 export interface AssignStats {
