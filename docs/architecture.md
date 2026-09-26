@@ -121,7 +121,8 @@ flowchart LR
   - 相手（上司・同僚・部下・取引先・お客様・友人・家族・指定なし）と場面（チャット・メール・指定なし）を state に入れます。
   - Claude に書き換え案を頼むときのプロンプトもここに置いています。
 - `contract.py`: 契約・規約チェック。本文を条項（第N条・番号・空行）に分け、評価アプリ「契約条項のリスク判定」の質問（自動更新・違約金・責任制限・第三者提供の Noul と、不利さの Score）を条項ごとに 1 回の問い合わせで判定します。やさしい説明は Claude に頼みます。法的助言ではない旨を画面と API の結果に出します。
-- `api.py`: `/api/tools/tone*`・`/api/tools/contract*` の API です。
+- `reply.py`: 返信前チェック。問い合わせと返信の下書きから、質問に答えているか・方針を超えた約束・謝罪（足りない／適切／過剰）・足りない情報（候補ごとの Noul）・言い方（言い方チェックの観点を流用）を 1 回で判定します。個人情報の候補は規則ですべて伏せてから Jev・Claude に送ります。直した案は Claude が作り、判定し直して前後を比べます。
+- `api.py`: `/api/tools/tone*`・`/api/tools/reply*`・`/api/tools/contract*` の API です。
   - 判定は選んだ接続先で行います。
   - 書き換え案は生成器（Claude）で作ります。モデルは sonnet（既定）と opus だけ（haiku は遅く出力も長いため外した）。
 
@@ -133,7 +134,7 @@ flowchart LR
   - 最初の画面: `/`（運用ダッシュボード `/ops` に移る）
   - 評価ダッシュボード: `/eval`、`/eval/apps/:name`、`/eval/apps/:name/run`
   - 運用ダッシュボード: `/ops`、`/ops/inbox|pii|review|escalations|channels|staff|connectors|tuning|settings`、`/ops/items/:id`
-  - ツール: `/tools/tone`、`/tools/contract`
+  - ツール: `/tools/tone`、`/tools/reply`（`?item=` でエスカレーションの件の問い合わせを入れる）、`/tools/contract`
 - 運用の画面は 1.5 秒間隔のポーリングで更新します（`ops/state.tsx` の `usePolling`）。
 
 ## 3. 1 件の流れ
@@ -238,6 +239,7 @@ flowchart TD
 | `POST /api/ops/simulator`、`/reset`、`GET /posts`、`/tuning` | シミュレータ・初期化・投稿・閾値の調整 |
 | `GET /api/ops/slack` | Slack のコネクタの状態（トークンの有無・送信と受信の状態・件数・エラー）。トークンの値は返さない |
 | `GET /api/tools/tone/meta`、`POST /api/tools/tone`、`/tone/rewrite` | 言い方チェック |
+| `GET /api/tools/reply/meta`、`POST /api/tools/reply`、`/reply/rewrite` | 返信前チェック（判定・直した案） |
 | `GET /api/tools/contract/meta`、`POST /api/tools/contract`、`/contract/explain` | 契約・規約チェック（判定・やさしい説明） |
 
 エラーの返し方:
