@@ -182,10 +182,22 @@ def category_question(categories: Sequence[CategoryDef]) -> Choice:
     return Choice(instructions=base.instructions, criteria={c.key: c.criteria for c in categories})
 
 
+# 返信が要るか（その他など、返信の要るものと要らないものが混ざる分類で使う）
+REPLY_ID: Final = "needs_reply"
+REPLY_QUESTION: Final = Noul(
+    instructions="`mail.body` は、店から書き手へ返事（回答・連絡・お詫び・案内）をするべき内容である",
+    criteria={
+        "true": "質問・依頼・苦情・提案・取材や採用の問い合わせなど、店が返事をするべき内容",
+        "false": "お礼・感想・一方的なお知らせ・宣伝・迷惑メールなど、返事をしなくてよい内容",
+    },
+)
+
+
 def classify_questions(candidates: Mapping[str, list[str]], categories: Sequence[CategoryDef]) -> dict[str, Question]:
     return {
         **MAIL_QUESTIONS,
         "category": category_question(categories),
+        REPLY_ID: REPLY_QUESTION,
         **PRIORITY_QUESTIONS,
         **field_questions(candidates),
     }

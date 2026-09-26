@@ -184,7 +184,53 @@ function KevDownBanner() {
  * 処理フローの進み具合。処理待ちが 0 から増えたときを 1 回の処理の始まりとし、
  * それまでに終わっていた件を除いて「全 N 件中、何件終わったか」を出す（取り込み・受信のまとまりごと）。
  */
-function FlowProgress({ received, waiting, imported }: { received: number; waiting: number; imported: number | null }) {
+// 処理中に進み具合を読む間隔（ダッシュボード全体の更新より短くして、数が細かく進むようにする）
+const PROGRESS_MS = 300
+
+/** 表示する数を、目標の数まで 1 つずつ（離れているときは少し大きく）進める。 */
+function useCountUp(target: number): number {
+  const [shown, setShown] = useState(target)
+  useEffect(() => {
+    if (shown === target) return
+    const frame = requestAnimationFrame(() => {
+      const diff = target - shown
+      // 1 回の読み取りの間（約 18 フレーム）に追いつく幅で進める
+      const step = Math.max(1, Math.ceil(Math.abs(diff) / 18))
+      setShown(diff > 0 ? Math.min(target, shown + step) : Math.max(target, shown - step))
+    })
+    return () => cancelAnimationFrame(frame)
+  }, [shown, target])
+  return shown
+}
+
+function FlowProgress({ received: r0, waiting: w0, imported }: { received: number; waiting: number; imported: number | null }) {
+  // 処理中は、軽い進み具合の API を短い間隔で読む（ダッシュボード全体の更新は 1.5 秒ごとで、まとめて進んで見えるため）
+  const [live, setLive] = useState<{ received: number; waiting: number } | null>(null)
+  const busy = w0 > 0 || (live?.waiting ?? 0) > 0
+  useEffect(() => {
+    if (!busy) return
+    let stop = false
+    const tick = () => {
+      ops
+        .progress()
+        .then((p) => {
+          if (!stop) setLive(p)
+        })
+        .catch(() => {
+          // 読めなかったときは、ダッシュボード全体の更新の数を使う
+        })
+    }
+    tick()
+    const timer = setInterval(tick, PROGRESS_MS)
+    return () => {
+      stop = true
+      clearInterval(timer)
+    }
+  }, [busy])
+  // 新しい方の数を使う（受信した件数が多い方、同じなら処理待ちが少ない方）
+  const useLive = live !== null && (live.received > r0 || (live.received === r0 && live.waiting <= w0))
+  const received = useLive ? live.received : r0
+  const waiting = useLive ? live.waiting : w0
   const [run, setRun] = useState<{ base: number; active: boolean } | null>(null)
   // 描画中に状態を合わせる（処理待ちの増減に合わせて、始まり・終わりを記録する）。
   // 取り込みの直後に開いたときの最初の処理は、取り込んだ件数を全体に数える（開くまでに終わった件も含める）
@@ -193,7 +239,7 @@ function FlowProgress({ received, waiting, imported }: { received: number; waiti
   if (waiting === 0 && run?.active) setRun({ ...run, active: false })
   const base = Math.min(run?.base ?? 0, received)
   const total = received - base
-  const done = total - waiting
+  const done = useCountUp(total - waiting)
   return (
     <div className="row flow-progress" data-testid="flow-progress">
       <div className="sim-progress" role="progressbar" aria-label="処理済みの件数" aria-valuemin={0} aria-valuemax={total} aria-valuenow={done}>

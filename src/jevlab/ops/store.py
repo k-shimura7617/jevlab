@@ -222,6 +222,18 @@ class Store:
                 ).fetchall()
         return [Item.model_validate_json(r["data"]) for r in rows]
 
+    def progress(self) -> tuple[int, int]:
+        """受信した件数と、処理待ち（処理中を含む）の件数。過去の問い合わせ（試算用）は数えない。
+
+        処理フローの進み具合を細かく見るためのもので、件を読み込まずに数だけ数える（軽い）。
+        """
+        with self._lock:
+            row = self._db.execute(
+                "SELECT COUNT(*) AS received, COALESCE(SUM(status IN ('queued', 'processing')), 0) AS waiting "
+                "FROM items WHERE COALESCE(json_extract(data, '$.backfill'), 0) = 0"
+            ).fetchone()
+        return int(row["received"]), int(row["waiting"])
+
     def claim_next(self) -> Item | None:
         """処理待ちの最も古い件を処理中にして返す。"""
         with self._tx() as db:

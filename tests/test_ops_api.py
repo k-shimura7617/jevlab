@@ -900,3 +900,11 @@ def test_escalation_close_is_posted_to_the_escalation_channel_with_notes(client:
     done = [p for p in client.get("/api/ops/posts").json() if p["author"] == "担当者（対応完了）"]
     assert [p["channel"] for p in done] == ["#cs-エスカレーション"]
     assert done[0]["text"].splitlines()[-2:] == ["メモ:", "・電話済み"]
+
+
+def test_progress_counts_received_and_waiting(client: TestClient) -> None:
+    before = client.get("/api/ops/progress").json()
+    item_id = ingest(client, "在庫はありますか")
+    settle(client, item_id)
+    after = client.get("/api/ops/progress").json()
+    assert after == {"received": before["received"] + 1, "waiting": 0}

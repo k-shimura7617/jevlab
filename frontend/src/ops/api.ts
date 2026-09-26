@@ -287,6 +287,8 @@ export interface CategoryDef {
   active: boolean
   // 返信のいらない分類。自動で振り分けた件は、投稿したうえで自動で完了にする
   auto_close: boolean
+  // 返信が要るかを件ごとに Jev で判定する（要らない件は返信不要と同じく自動で完了）
+  judge_reply: boolean
 }
 
 export interface Settings {
@@ -444,6 +446,7 @@ export interface PiiEval {
 
 export const ops = {
   meta: () => call<Meta>('GET', '/meta'),
+  progress: () => call<{ received: number; waiting: number }>('GET', '/progress'),
   overview: () => call<Overview>('GET', '/overview'),
   items: (statuses?: Status[]) =>
     call<Item[]>('GET', `/items${statuses?.length ? `?${statuses.map((s) => `status=${s}`).join('&')}` : ''}`),

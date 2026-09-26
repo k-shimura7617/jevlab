@@ -216,6 +216,18 @@ def _accuracy(items: list[Item], final: bool) -> Accuracy:
     return Accuracy(n=len(graded), matched=sum(1 for p, t in graded if p == t))
 
 
+class Progress(BaseModel):
+    received: int
+    waiting: int
+
+
+@router.get("/progress")
+async def progress(pipeline: PipelineDep) -> Progress:
+    """処理フローの進み具合（処理中は画面が短い間隔で読む）。"""
+    received, waiting = pipeline.store.progress()
+    return Progress(received=received, waiting=waiting)
+
+
 @router.get("/overview")
 async def overview(pipeline: PipelineDep) -> Overview:
     store = pipeline.store
