@@ -5,7 +5,7 @@ import { pct } from '../../format'
 import { Page, useTitle } from '../../shell'
 import { ops, type Item, type PiiAction, type PiiType, type Span } from '../api'
 import { BulkBar, CheckRow, Empty, ItemRow } from '../components'
-import { ACTION_LABELS, PII_FLAG_LABELS, PII_FLAG_NOTES, PII_OUT_OF_SCOPE, PII_TYPE_EXAMPLES, safeToBulk } from '../format'
+import { ACTION_LABELS, PII_FLAG_LABELS, PII_FLAG_NOTES, safeToBulk } from '../format'
 import { SelectableText } from '../SelectableText'
 import { useOps, usePolling } from '../state'
 
@@ -245,43 +245,22 @@ function Editor({ item, onDone, enqueue }: { item: Item; onDone: (id: string) =>
           {submitError}
         </div>
       )}
-      <PiiScope labels={labels} policy={policy} />
+      <PiiScope labels={labels} />
     </article>
   )
 }
 
-/** 何を個人情報として扱うか（種類・方針・例）と、隠さないものの例。 */
-function PiiScope({ labels, policy }: { labels: Record<string, string>; policy: Record<PiiType, PiiAction> | undefined }) {
+/** 確認の対象（個人情報として扱う種類）。 */
+function PiiScope({ labels }: { labels: Record<string, string> }) {
   return (
-    <details className="pii-scope" open data-testid="pii-scope">
-      <summary>確認の対象（何を個人情報として扱うか）</summary>
-      <div className="pii-scope-body">
-        <div>
-          <h4>対象（隠す・止める）</h4>
-          <ul>
-            {(Object.keys(labels) as PiiType[]).map((t) => (
-              <li key={t}>
-                <strong>{labels[t]}</strong>
-                {policy && <span className={`act act-${policy[t]}`}>{ACTION_LABELS[policy[t]]}</span>}
-                {PII_TYPE_EXAMPLES[t] && <span className="muted small">例: {PII_TYPE_EXAMPLES[t]}</span>}
-              </li>
-            ))}
-          </ul>
-        </div>
-        <div>
-          <h4>対象外（隠さない）</h4>
-          <ul>
-            {PII_OUT_OF_SCOPE.map((x) => (
-              <li key={x.label}>
-                <strong>{x.label}</strong>
-                <span className="muted small">例: {x.example}</span>
-              </li>
-            ))}
-          </ul>
-        </div>
-      </div>
-      <p className="note small">迷ったら個人情報として扱う</p>
-    </details>
+    <section className="pii-scope" data-testid="pii-scope">
+      <h4>確認対象</h4>
+      <ul>
+        {Object.entries(labels).map(([t, label]) => (
+          <li key={t}>{label}</li>
+        ))}
+      </ul>
+    </section>
   )
 }
 
