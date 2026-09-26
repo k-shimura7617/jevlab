@@ -240,3 +240,13 @@ def test_subordinate_recipient(client: TestClient) -> None:
     )
     prompt = tone.rewrite_prompt(req)
     assert "相手: 部下" in prompt and "目下の相手でも" in tone.REWRITE_SYSTEM
+
+
+def test_recipient_and_medium_default_to_unspecified(client: TestClient) -> None:
+    meta = client.get("/api/tools/tone/meta").json()
+    assert meta["recipients"]["none"] == "指定なし" and meta["mediums"]["none"] == "指定なし"
+    # 相手・場面を送らなければ「指定なし」として判定する
+    res = client.post("/api/tools/tone?target=mock", json={"text": "資料を確認しておいてください。"})
+    assert res.status_code == 200, res.text
+    st = tone.state("本文", "none", "none", ["本文"])
+    assert st["message"] == {"text": "本文", "recipient": "指定なし", "medium": "指定なし", "sentences": ["本文"]}

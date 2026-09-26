@@ -30,7 +30,7 @@ h2.inline { margin: 0; }
 .sentences { line-height: 2; font-size: 14px; }
 .sent { padding: 1px 2px; border-radius: 3px; background: color-mix(in srgb, var(--ng) calc(var(--heat) * 22%), transparent); }
 .sent.flagged { border-bottom: 2px solid var(--ng); }
-.tone-history ul { margin: 4px 0; padding-left: 18px; font-size: 13px; }
+.tone-history ul { margin: 4px 0; padding-left: 18px; font-size: 13px; max-height: 150px; overflow: auto; }
 .tone-history li { display: flex; gap: 8px; align-items: center; }
 .vd { font-size: 11px; font-weight: 700; padding: 0 6px; border-radius: 4px; white-space: nowrap; }
 .vd-ok { background: var(--ok-soft); color: var(--ok); }
@@ -54,7 +54,8 @@ h2.inline { margin: 0; }
   .tone-layout > .panel { min-height: 940px; }
   .tone-input { display: flex; flex-direction: column; }
   .tone-input > * { flex: none; }
-  .tone-input > textarea { flex: 1 1 auto; min-height: 150px; resize: none; }
+  /* 入力欄の高さを決め、履歴を開いても相手・判定のボタンが動かないようにする（履歴はその下の余白に出す） */
+  .tone-input > textarea { height: 540px; resize: none; }
 }
 .legend-line { margin: -4px 0 4px; }
 /* 文ごとの色分けは高さを決め、中でスクロールする */

@@ -21,7 +21,8 @@ from jevlab.core.engine import AnswerView
 from jevlab.core.generator import ClaudeModel
 
 APP_NAME: Final = "tool-tone"
-Recipient = Literal["boss", "colleague", "subordinate", "client", "customer", "friend", "family"]
+# none は「指定なし」（一般的なビジネスの相手・場面として判定する）
+Recipient = Literal["boss", "colleague", "subordinate", "client", "customer", "friend", "family", "none"]
 RECIPIENT_LABELS: Final[dict[Recipient, str]] = {
     "boss": "上司",
     "colleague": "同僚",
@@ -30,9 +31,10 @@ RECIPIENT_LABELS: Final[dict[Recipient, str]] = {
     "customer": "お客様",
     "friend": "友人",
     "family": "家族",
+    "none": "指定なし",
 }
-Medium = Literal["chat", "mail"]
-MEDIUM_LABELS: Final[dict[Medium, str]] = {"chat": "チャット", "mail": "メール"}
+Medium = Literal["chat", "mail", "none"]
+MEDIUM_LABELS: Final[dict[Medium, str]] = {"chat": "チャット", "mail": "メール", "none": "指定なし"}
 Purpose = Literal["request", "apology", "thanks", "report", "decline", "casual"]
 PURPOSES: Final[tuple[Purpose, ...]] = get_args(Purpose)
 PURPOSE_LABELS: Final[dict[Purpose, str]] = {
@@ -150,6 +152,7 @@ ASPECTS: Final[tuple[Aspect, ...]] = (
         "good",
         Score(
             instructions="`message.text` の丁寧さは、`message.recipient` との関係と `message.medium` の場面に対してどうか。"
+            "「指定なし」なら一般的なビジネスの相手・場面として判断する。"
             "部下など目下の相手でも、命令口調や見下した言い方は「くだけすぎ」とみなす",
             criteria=[
                 "くだけすぎ。この相手・場面では失礼、または軽く見えるおそれがある",
@@ -483,7 +486,7 @@ REWRITE_SYSTEM: Final = """あなたは日本語のビジネス文章の編集�
 守ること:
 - 伝える事実・依頼内容・約束・数字・日付は変えない。新しい事実や約束を作らない。
 - 足りない情報（期限、原因、今後の対応など）があれば、作らずに【期限を記入】のような空欄を置く。
-- 相手との関係と場面（チャット・メール）に合った丁寧さにする。チャットなら短く保つ。
+- 相手との関係と場面（チャット・メール）に合った丁寧さにする。チャットなら短く保つ。「指定なし」なら一般的なビジネスの丁寧さにする。
 - 部下など目下の相手でも、命令口調や見下した言い方にしない（敬語を重ねる必要はない）。
 - 宛名・署名・会社名・件名など、元の文面にない定型は足さない（本文だけを直す）。
 - 空欄は本当に必要なものだけにする（多くても 3 つ）。

@@ -268,14 +268,17 @@ const MODEL_HINTS: Record<ClaudeModel, string> = {
   opus: '微妙なニュアンス向き',
 }
 
+/** 「指定なし」を先頭に並べる。 */
+const noneFirst = <T extends string>(keys: T[]): T[] => [...keys.filter((k) => k === 'none'), ...keys.filter((k) => k !== 'none')]
+
 export function TonePage() {
   useTitle('言い方チェック')
   const { target } = useShell()
   const [meta, setMeta] = useState<ToneMeta | null>(null)
   const [metaError, setMetaError] = useState<string | null>(null)
   const [text, setText] = useState('')
-  const [recipient, setRecipient] = useState<Recipient>('colleague')
-  const [medium, setMedium] = useState<Medium>('chat')
+  const [recipient, setRecipient] = useState<Recipient>('none')
+  const [medium, setMedium] = useState<Medium>('none')
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [judged, setJudged] = useState<{ text: string; recipient: Recipient; medium: Medium; result: ToneResult } | null>(null)
@@ -441,7 +444,7 @@ export function TonePage() {
             </label>
             <select id="tone-recipient" value={recipient} onChange={(e) => setRecipient(e.target.value as Recipient)}>
               {meta &&
-                (Object.keys(meta.recipients) as Recipient[]).map((r) => (
+                noneFirst(Object.keys(meta.recipients) as Recipient[]).map((r) => (
                   <option key={r} value={r}>
                     {meta.recipients[r]}
                   </option>
@@ -449,7 +452,7 @@ export function TonePage() {
             </select>
             <div className="seg" role="group" aria-label="場面">
               {meta &&
-                (Object.keys(meta.mediums) as Medium[]).map((m) => (
+                noneFirst(Object.keys(meta.mediums) as Medium[]).map((m) => (
                   <button key={m} type="button" className="seg-btn" aria-pressed={medium === m} onClick={() => setMedium(m)}>
                     {meta.mediums[m]}
                   </button>
