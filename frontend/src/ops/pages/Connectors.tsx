@@ -152,9 +152,8 @@ function SlackPanel() {
       )}
       {st?.outbound.last_error && <div className="error small">送信: {st.outbound.last_error}</div>}
       {st?.inbound.last_error && <div className="error small">受信: {st.inbound.last_error}</div>}
-      {st?.bot_token && <SlackPurge purge={st.purge} onStarted={status.reload} />}
       <details className="slack-settings">
-      <summary className="small">設定（送信・受信・呼び出し・チャンネル）</summary>
+      <summary>設定（送信・受信・呼び出し・チャンネル）</summary>
       <div className="form-grid">
         <label htmlFor="slack-out">送信</label>
         <label className="small">
@@ -243,10 +242,14 @@ function SlackPanel() {
         ))}
       </div>
       <p className="muted small">お問い合わせ窓口（元の本文）は流しません。</p>
+      <SaveState status={auto.status} error={auto.error} />
+      {st?.bot_token && (
+        <div className="slack-purge">
+          <h3>投稿の削除</h3>
+          <SlackPurge purge={st.purge} onStarted={status.reload} />
+        </div>
+      )}
       </details>
-      <div className="row">
-        <SaveState status={auto.status} error={auto.error} />
-      </div>
     </section>
   )
 }
