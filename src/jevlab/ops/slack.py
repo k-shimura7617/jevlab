@@ -335,23 +335,22 @@ def mention(member: StaffMember | None) -> str:
 
 
 def assign_line(item: Item, settings: Settings) -> str:
-    """スレッドに書く、担当についての一言。
+    """スレッドに書く、担当についての一言（メンション・お願い・確信度を 1 行ずつ）。
 
     担当が決まっていればその人を、決まっていなければ振り分け担当（当番）をメンションする。
     推定した担当は名前だけ書く（確信度の低い推定で本人を呼び出さないため）。
     """
     staff = {s.id: s for s in settings.staff}
     if item.assignee:
-        if item.assign_provisional:
-            p = f"・確率 {item.assign_confidence:.2f}" if item.assign_confidence is not None else ""
-            how = f"（仮で割り当て{p}。違えば担当を変えてください）"
-        else:
-            how = "（自動で割り当て）" if item.assigned_by == "auto" else ""
-        return f"{mention(staff.get(item.assignee))} 担当です{how}"
+        lines = [mention(staff.get(item.assignee)), "確認してください。"]
+        if item.assigned_by == "auto" and item.assign_confidence is not None:
+            lines.append(f"担当確信度 {item.assign_confidence:.2f}")
+        return "\n".join(lines)
     dispatcher = settings.dispatcher_member()
-    who = mention(dispatcher) if dispatcher else "（振り分け担当が未設定）"
-    hint = f"（推定: {staff[item.assign_suggestion].name}）" if item.assign_suggestion in staff else ""
-    return f"{who} 担当を決めてください{hint}"
+    lines = [mention(dispatcher) if dispatcher else "（振り分け担当が未設定）", "担当を決めてください。"]
+    if item.assign_suggestion in staff:
+        lines.append(f"推定: {staff[item.assign_suggestion].name}")
+    return "\n".join(lines)
 
 
 # Slack の書式のメンション（<@U123> や <@U123|name>）。ユーザー ID は取り込まない
