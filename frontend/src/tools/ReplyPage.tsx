@@ -302,7 +302,7 @@ export function ReplyPage() {
             )}
             <div className="row">
               <button type="button" disabled={!fixed.trim()} onClick={() => setDraft(fixed.trim())}>
-                採用（下書きに入れる）
+                採用
               </button>
               {r && (
                 <button type="button" className="secondary" disabled={afterBusy || !fixed.trim() || !target} onClick={checkFixed}>
