@@ -342,7 +342,7 @@ def assign_line(item: Item, settings: Settings) -> str:
     """
     staff = {s.id: s for s in settings.staff}
     if item.assignee:
-        lines = [mention(staff.get(item.assignee)), "確認してください。"]
+        lines = [mention(staff.get(item.assignee)), "対応お願いします。"]
         if item.assigned_by == "auto" and item.assign_confidence is not None:
             lines.append(f"担当確信度 {item.assign_confidence:.2f}")
         return "\n".join(lines)
