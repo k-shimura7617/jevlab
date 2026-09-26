@@ -62,7 +62,7 @@ function Compare({ before, after }: { before: ReplyResult; after: ReplyResult })
         <tr>
           <th>観点</th>
           <th>下書き</th>
-          <th>直した案</th>
+          <th>修正案</th>
         </tr>
       </thead>
       <tbody>
@@ -111,7 +111,7 @@ export function ReplyPage() {
   const [draftBusy, setDraftBusy] = useState(false)
   const [draftNote, setDraftNote] = useState<string | null>(null)
   const draftElapsed = useElapsed(draftBusy)
-  // 判定をやり直したら、それより前に頼んだ直した案・再判定の応答は捨てる
+  // 判定をやり直したら、それより前に頼んだ修正案・再判定の応答は捨てる
   const generation = useRef(0)
   const policyText = policy ?? meta?.default_policy ?? ''
 
@@ -303,15 +303,15 @@ export function ReplyPage() {
       {r && (
         <section className="panel rewrite" data-testid="reply-rewrite">
           <div className="panel-head">
-            <h2>直した案（Claude）</h2>
+            <h2>修正案（Claude）</h2>
             <button type="button" className="rw-btn" disabled={rwBusy || busy || stale} onClick={makeRewrite}>
-              {rwBusy ? `作成中…（${elapsed} 秒）` : '直した案を作る'}
+              {rwBusy ? `作成中…（${elapsed} 秒）` : '修正案の作成'}
             </button>
           </div>
           {rwError && <div className="error small">{rwError}</div>}
           {rewrite && (
             <>
-              <textarea aria-label="直した案" rows={7} value={fixed} onChange={(e) => setFixed(e.target.value)} />
+              <textarea aria-label="修正案" rows={7} value={fixed} onChange={(e) => setFixed(e.target.value)} />
               {rewrite.changes.length > 0 && (
                 <ul className="small">
                   {rewrite.changes.map((c, i) => (

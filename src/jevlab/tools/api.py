@@ -273,7 +273,7 @@ async def check_reply(req: ReplyRequest, backend: Annotated[BackendLike, Depends
 
 
 async def _written(request: Request, model: ClaudeModel, system: str, prompt: str, what: str) -> tone.RewriteResult:
-    """Claude に文面を書かせる（直した案・返信の案）。"""
+    """Claude に文面を書かせる（修正案・返信の案）。"""
     slots: asyncio.Semaphore = request.app.state.rewrite_slots
     try:
         generator = make_generator(model)
@@ -296,7 +296,7 @@ async def _written(request: Request, model: ClaudeModel, system: str, prompt: st
 
 @router.post("/reply/rewrite")
 async def rewrite_reply(req: reply.RewriteRequest, request: Request) -> tone.RewriteResult:
-    return await _written(request, req.model, reply.REWRITE_SYSTEM, reply.rewrite_prompt(req), "直した案")
+    return await _written(request, req.model, reply.REWRITE_SYSTEM, reply.rewrite_prompt(req), "修正案")
 
 
 @router.post("/reply/draft")
