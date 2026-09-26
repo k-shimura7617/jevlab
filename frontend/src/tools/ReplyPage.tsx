@@ -62,7 +62,7 @@ function Compare({ before, after }: { before: ReplyResult; after: ReplyResult })
         <tr>
           <th>観点</th>
           <th>下書き</th>
-          <th>修正案</th>
+          <th>AI修正案</th>
         </tr>
       </thead>
       <tbody>
@@ -303,15 +303,15 @@ export function ReplyPage() {
       {r && (
         <section className="panel rewrite" data-testid="reply-rewrite">
           <div className="panel-head">
-            <h2>修正案（Claude）</h2>
+            <h2>AI修正案（Claude）</h2>
             <button type="button" className="rw-btn" disabled={rwBusy || busy || stale} onClick={makeRewrite}>
-              {rwBusy ? `作成中…（${elapsed} 秒）` : '修正案の作成'}
+              {rwBusy ? `作成中…（${elapsed} 秒）` : 'AI修正案の作成'}
             </button>
           </div>
           {rwError && <div className="error small">{rwError}</div>}
           {rewrite && (
             <>
-              <textarea aria-label="修正案" rows={7} value={fixed} onChange={(e) => setFixed(e.target.value)} />
+              <textarea aria-label="AI修正案" rows={7} value={fixed} onChange={(e) => setFixed(e.target.value)} />
               {rewrite.changes.length > 0 && (
                 <ul className="small">
                   {rewrite.changes.map((c, i) => (
