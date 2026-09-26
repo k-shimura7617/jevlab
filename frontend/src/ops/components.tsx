@@ -291,3 +291,18 @@ export function BulkBar({
     </div>
   )
 }
+
+/** 自動保存の状態（保存できないときは理由）。 */
+export function SaveState({ status, error }: { status: string | null; error: string | null }) {
+  if (error)
+    return (
+      <span className="error small" role="alert" data-testid="save-state">
+        保存できません: {error}
+      </span>
+    )
+  return (
+    <span className="muted small" data-testid="save-state">
+      {status ?? '自動保存'}
+    </span>
+  )
+}

@@ -1,10 +1,11 @@
 import { useState, type ReactNode } from 'react'
 import { Link } from 'react-router'
-import { errorMessage, type Mode } from '../../api'
+import { type Mode } from '../../api'
 import { pct } from '../../format'
 import { Page, targetStatus, useShell, useTitle } from '../../shell'
 import type { PiiAction, PiiType, Settings } from '../api'
-import { WeightSliders } from '../components'
+import { useAutoSave } from '../autosave'
+import { SaveState, WeightSliders } from '../components'
 import { ACTION_LABELS, ACTION_NOTES } from '../format'
 import { useOps } from '../state'
 
@@ -65,77 +66,67 @@ function TargetSelect<T extends Mode>({
   )
 }
 
+// この画面で編集する項目（ほかの画面の項目は、保存のときに最新の値を使う）
+const KEYS = ['guard', 'classify', 'kev_first', 'audit_rate', 'sla', 'priority_weights'] as const
+const settingsChanged = (d: Settings, s: Settings) => KEYS.some((k) => JSON.stringify(d[k]) !== JSON.stringify(s[k]))
+const mergeSettings = (latest: Settings, d: Settings): Settings => ({ ...latest, ...Object.fromEntries(KEYS.map((k) => [k, d[k]])) })
+
+function slaInvalid(sla: Settings['sla']): string | null {
+  return !(sla.hours > 0)
+    ? '対応目安は 0 より大きくしてください'
+    : sla.start >= sla.end
+      ? '営業時間の開始は終了より前にしてください'
+      : sla.days.length === 0
+        ? '営業日を選んでください'
+        : sla.holidays.some((d) => !/^\d{4}-\d{2}-\d{2}$/.test(d))
+          ? '休業日は 2026-01-01 の形で書いてください'
+          : null
+}
+
+const settingsInvalid = (d: Settings): string | null =>
+  d.classify.review_threshold > d.classify.auto_threshold ? '確認待ちの閾値が自動の閾値を超えています' : slaInvalid(d.sla)
+
 export function OpsSettings() {
   useTitle('運用の設定')
-  const { settings, meta, saveSettings, settingsError } = useOps()
+  const { meta, settingsError } = useOps()
   const { status } = useShell()
-  // 編集を始めるまではサーバの設定をそのまま表示する
-  const [edited, setEdited] = useState<Settings | null>(null)
   // 休業日の欄は入力中の文字列をそのまま持つ（区切りのカンマを打った途端に消えないように）
   const [holidayText, setHolidayText] = useState<string | null>(null)
-  const [saved, setSaved] = useState<string | null>(null)
-  const [error, setError] = useState<string | null>(null)
-  const draft = edited ?? settings
+  const auto = useAutoSave(settingsChanged, mergeSettings, settingsInvalid)
+  const { draft, set } = auto
   if (!draft) return <Page crumbs={[{ label: '運用', to: '/ops' }, { label: '設定' }]}>{settingsError ?? '読み込み中…'}</Page>
-  const dirty = edited !== null && JSON.stringify({ ...edited, simulator: null }) !== JSON.stringify({ ...settings, simulator: null })
-  const set = (f: (s: Settings) => Settings) => {
-    setEdited(f(draft))
-    setSaved(null)
-  }
   const g = draft.guard
   const c = draft.classify
   const sla = draft.sla
-  const slaError =
-    !(sla.hours > 0)
-      ? '対応目安は 0 より大きくしてください'
-      : sla.start >= sla.end
-        ? '営業時間の開始は終了より前にしてください'
-        : sla.days.length === 0
-          ? '営業日を選んでください'
-          : sla.holidays.some((d) => !/^\d{4}-\d{2}-\d{2}$/.test(d))
-            ? '休業日は 2026-01-01 の形で書いてください'
-            : null
+  const slaError = slaInvalid(sla)
   const labels: Record<string, string> = meta?.pii_types ?? {}
   const warn = (t: Mode) => {
     const ts = targetStatus(status, t)
     return ts && !ts.available ? <div className="warn-box small">{ts.reason}</div> : null
   }
-  const save = () => {
-    setError(null)
-    saveSettings(draft)
-      .then(() => {
-        setEdited(null)
-        setHolidayText(null)
-        setSaved('保存しました。次に処理する件から反映されます')
-      })
-      .catch((e: unknown) => setError(errorMessage(e)))
-  }
   return (
     <Page crumbs={[{ label: '運用', to: '/ops' }, { label: '設定' }]}>
+      <div {...auto.handlers}>
       <div className="panel-head">
         <h1>運用の設定</h1>
-        <div className="row">
-          {dirty && <span className="warn-text small">未保存の変更があります</span>}
-          <button type="button" className="secondary" disabled={!dirty} onClick={() => {
-              setEdited(null)
-              setHolidayText(null)
-            }}>
-            元に戻す
-          </button>
-          <button type="button" disabled={!dirty || draft.classify.review_threshold > draft.classify.auto_threshold || slaError !== null} onClick={save}>
-            保存
-          </button>
-        </div>
+        <SaveState status={auto.status} error={auto.error} />
       </div>
-      {saved && <div className="done-box">{saved}</div>}
-      {error && <div className="error">{error}</div>}
 
       <Section id="guard" title="個人情報のガードレール" desc="Jev に送る前にマスク・ブロック">
         <div className="form-grid">
           <label htmlFor="g-enabled">ガードレール</label>
           <div>
             <label className="small">
-              <input id="g-enabled" type="checkbox" checked={g.enabled} onChange={(e) => set((s) => ({ ...s, guard: { ...s.guard, enabled: e.target.checked } }))} /> 有効にする
+              <input
+                id="g-enabled"
+                type="checkbox"
+                checked={g.enabled}
+                onChange={(e) => {
+                  const on = e.target.checked
+                  if (!on && !window.confirm('ガードレールを外すと、元の本文のまま Jev に送ります。外しますか？')) return
+                  set((s) => ({ ...s, guard: { ...s.guard, enabled: on } }))
+                }}
+              /> 有効にする
             </label>
             {!g.enabled && (
               <div className="error small" role="alert">
@@ -190,7 +181,10 @@ export function OpsSettings() {
                         name={`policy-${t}`}
                         aria-label={`${labels[t] ?? t}: ${ACTION_LABELS[a]}`}
                         checked={g.policy[t] === a}
-                        onChange={() => set((s) => ({ ...s, guard: { ...s.guard, policy: { ...s.guard.policy, [t]: a } } }))}
+                        onChange={() => {
+                          if (a === 'allow' && !window.confirm(`${labels[t] ?? t}を「${ACTION_LABELS[a]}」にすると、そのまま Jev に送ります。変えますか？`)) return
+                          set((s) => ({ ...s, guard: { ...s.guard, policy: { ...s.guard.policy, [t]: a } } }))
+                        }}
                       />
                     </td>
                   ))}
@@ -327,6 +321,7 @@ export function OpsSettings() {
       <Section id="weights" title="優先度の重み" desc="大きいほど上に並ぶ">
         <WeightSliders weights={draft.priority_weights} onChange={(w) => set((s) => ({ ...s, priority_weights: w }))} />
       </Section>
+      </div>
     </Page>
   )
 }

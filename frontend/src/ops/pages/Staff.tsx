@@ -3,6 +3,8 @@ import { errorMessage } from '../../api'
 import { pct } from '../../format'
 import { Page, useTitle } from '../../shell'
 import { ops, type ScopeDraft, type Settings, type StaffMember } from '../api'
+import { useAutoSave } from '../autosave'
+import { SaveState } from '../components'
 import { staffName } from '../format'
 import { useOps, usePolling } from '../state'
 
@@ -85,8 +87,9 @@ function StaffRow({
           className="link-btn"
           aria-label={`${member.name || '新しい担当者'}を削除`}
           onClick={() => {
-            if (assigned === 0 || window.confirm(`${member.name} は ${assigned} 件を対応中です（担当は ID のまま残ります）。削除しますか？`))
-              onRemove()
+            // 削除はすぐ保存されるので、いつも確かめる
+            const doing = assigned > 0 ? `（${assigned} 件を対応中。担当は ID のまま残ります）` : ''
+            if (window.confirm(`${member.name || '新しい担当者'}を削除しますか？${doing}`)) onRemove()
           }}
         >
           削除
@@ -96,45 +99,31 @@ function StaffRow({
   )
 }
 
+const badSlackId = (s: StaffMember) => Boolean(s.slack_user_id) && !/^[UW][A-Z0-9]{6,20}$/.test(s.slack_user_id ?? '')
+const staffChanged = (d: Settings, s: Settings) =>
+  JSON.stringify(d.staff) + JSON.stringify(d.assign) !== JSON.stringify(s.staff) + JSON.stringify(s.assign)
+// この画面で編集した担当者と割り当ての設定だけを、最新の設定に重ねる（他の画面での変更を上書きしない）
+const mergeStaff = (latest: Settings, d: Settings): Settings => ({
+  ...latest,
+  staff: d.staff.map((s) => ({ ...s, name: s.name.trim(), role: s.role.trim(), scope: s.scope.trim() })),
+  assign: d.assign,
+})
+const staffInvalid = (d: Settings): string | null =>
+  d.staff.some((s) => !s.name.trim()) ? '名前が空の担当者があります' : d.staff.some(badSlackId) ? 'Slack ID の形が違います' : null
+
 export function Staff() {
   useTitle('担当者')
-  const { settings, settingsError, saveSettings, overview } = useOps()
-  const [edited, setEdited] = useState<Settings | null>(null)
-  const [saving, setSaving] = useState(false)
-  const [msg, setMsg] = useState<string | null>(null)
-  const [error, setError] = useState<string | null>(null)
+  const { settings, settingsError, overview } = useOps()
   const stats = usePolling(ops.assignment, 5000)
   const escalated = usePolling(() => ops.items(['escalated']), 5000)
-  // 担当範囲の案（Claude）。採用すると一覧の担当範囲に入り、「保存」で確定する
+  const auto = useAutoSave(staffChanged, mergeStaff, staffInvalid)
+  const { draft, set } = auto
+  // 担当範囲の案（Claude）。採用すると一覧の担当範囲に入り、そのまま保存する
   const [proposal, setProposal] = useState<ScopeDraft | null>(null)
   const [drafting, setDrafting] = useState<string | null>(null)
   const [draftError, setDraftError] = useState<string | null>(null)
-  const draft = edited ?? settings
   if (!draft || !settings) return <Page crumbs={[{ label: '運用', to: '/ops' }, { label: '担当者' }]}>{settingsError ?? '読み込み中…'}</Page>
-  const set = (f: (s: Settings) => Settings) => {
-    setEdited(f(draft))
-    setMsg(null)
-  }
-  const dirty = edited !== null && JSON.stringify(edited.staff) + JSON.stringify(edited.assign) !== JSON.stringify(settings?.staff) + JSON.stringify(settings?.assign)
-  const badSlack = draft.staff.some((s) => s.slack_user_id && !/^[UW][A-Z0-9]{6,20}$/.test(s.slack_user_id))
-  const invalid = draft.staff.some((s) => !s.name.trim()) || badSlack
-  const save = () => {
-    if (saving) return
-    setSaving(true)
-    setError(null)
-    // この画面で編集した担当者と割り当ての設定だけを、最新の設定に重ねて保存する（他の画面での変更を上書きしない）
-    saveSettings({
-      ...settings,
-      staff: draft.staff.map((s) => ({ ...s, name: s.name.trim(), role: s.role.trim(), scope: s.scope.trim() })),
-      assign: draft.assign,
-    })
-      .then(() => {
-        setEdited(null)
-        setMsg('保存しました')
-      })
-      .catch((e: unknown) => setError(errorMessage(e)))
-      .finally(() => setSaving(false))
-  }
+  const badSlack = draft.staff.some(badSlackId)
   const a = draft.assign
   const st = stats.data
   const assignedCount = (id: string) => (escalated.data ?? []).filter((i) => i.assignee === id).length
@@ -150,24 +139,16 @@ export function Staff() {
   }
   const adopt = (p: ScopeDraft) => {
     set((s) => ({ ...s, staff: s.staff.map((x) => (x.id === p.staff_id ? { ...x, scope: p.scope } : x)) }))
+    void auto.commit()
     setProposal(null)
   }
   return (
     <Page crumbs={[{ label: '運用', to: '/ops' }, { label: '担当者' }]}>
+      <div {...auto.handlers}>
       <div className="panel-head">
         <h1>担当者</h1>
-        <div className="row">
-          {dirty && <span className="warn-text small">未保存の変更があります</span>}
-          <button type="button" className="secondary" disabled={!dirty} onClick={() => setEdited(null)}>
-            元に戻す
-          </button>
-          <button type="button" disabled={!dirty || invalid || saving} onClick={save}>
-            {saving ? '保存中…' : '保存'}
-          </button>
-        </div>
+        <SaveState status={auto.status} error={auto.error} />
       </div>
-      {msg && <div className="done-box">{msg}</div>}
-      {error && <div className="error">{error}</div>}
 
       <section className="panel">
         <h2>担当者の一覧</h2>
@@ -231,7 +212,6 @@ export function Staff() {
               <button type="button" className="secondary" onClick={() => setProposal(null)}>
                 閉じる
               </button>
-              <span className="muted small">使ったあと「保存」で確定</span>
             </div>
           </div>
         )}
@@ -324,6 +304,7 @@ export function Staff() {
         )}
         {overview && <p className="muted small">いまエスカレーション中 {overview.counts.escalated} 件</p>}
       </section>
+      </div>
     </Page>
   )
 }

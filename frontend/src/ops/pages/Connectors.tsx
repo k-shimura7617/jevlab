@@ -2,8 +2,10 @@ import { useState } from 'react'
 import { useNavigate } from 'react-router'
 import { errorMessage } from '../../api'
 import { Page, useTitle } from '../../shell'
-import { ops, type Channel, type ImportRow, type ParsedFile, type SlackSettings, type SlackState } from '../api'
+import { ops, type Channel, type ImportRow, type ParsedFile, type Settings, type SlackSettings, type SlackState } from '../api'
 import { guessCategory, guessMapping, MAPPED_FIELDS, SAMPLE_CSV, toIsoDate, type MappedField } from '../csv'
+import { useAutoSave } from '../autosave'
+import { SaveState } from '../components'
 import { useOps, usePolling } from '../state'
 
 const CONNECTORS: { id: Channel; name: string; icon: string; real: string; desc: string }[] = [
@@ -69,47 +71,43 @@ const SLACK_STATE: Record<SlackState, string> = {
 
 const SLACK_ID = /^[CG][A-Z0-9]{6,20}$/
 
+const splitIds = (v: string) => v.split(/[\s,、]+/).filter(Boolean)
+const badSlackIds = (d: Settings) => [...Object.values(d.slack.channel_map).filter(Boolean), ...d.slack.inbound_channels].filter((id) => !SLACK_ID.test(id))
+// 知らせる時間は、対応目安（営業時間）より短くする。空欄は 0 として送らない
+const maxRemindOf = (d: Settings) => Math.max(1, Math.round(d.sla.hours * 60) - 1)
+const remindInvalid = (d: Settings): string | null => {
+  const m = d.slack.reminder_before_min
+  const max = maxRemindOf(d)
+  return Number.isInteger(m) && m >= 1 && m <= max ? null : `知らせる時間は 1〜${max} 分で入れてください`
+}
+const slackChanged = (d: Settings, s: Settings) =>
+  JSON.stringify(d.slack) !== JSON.stringify(s.slack) || d.connectors.slack !== s.connectors.slack
+const mergeSlack = (latest: Settings, d: Settings): Settings => ({
+  ...latest,
+  slack: d.slack,
+  connectors: { ...latest.connectors, slack: d.connectors.slack },
+})
+const slackInvalid = (d: Settings): string | null => {
+  const bad = badSlackIds(d)
+  return bad.length ? `チャンネル ID の形式が違います: ${bad.join(', ')}` : remindInvalid(d)
+}
+
 function SlackPanel() {
-  const { settings, saveSettings } = useOps()
   const status = usePolling(ops.slack, 3000)
-  const [edit, setEdit] = useState<SlackSettings | null>(null)
+  const auto = useAutoSave(slackChanged, mergeSlack, slackInvalid)
+  // 受信するチャンネル ID の欄は入力中の文字列をそのまま持つ（区切りを打った途端に消えないように）
   const [inboundText, setInboundText] = useState<string | null>(null)
-  // 受信の入り切りも下書きに入れ、「保存」でまとめて保存する（切り替えだけで他の入力が消えないように）
-  const [receivingDraft, setReceivingDraft] = useState<boolean | null>(null)
-  const [msg, setMsg] = useState<string | null>(null)
-  const [error, setError] = useState<string | null>(null)
-  if (!settings) return null
+  const d = auto.draft
+  if (!d) return null
   const st = status.data
-  const draft = edit ?? settings.slack
-  const inbound = inboundText ?? settings.slack.inbound_channels.join(', ')
-  const inboundIds = inbound.split(/[\s,、]+/).filter(Boolean)
-  const badIds = [...Object.values(draft.channel_map).filter(Boolean), ...inboundIds].filter((id) => !SLACK_ID.test(id))
-  const receiving = receivingDraft ?? settings.connectors.slack ?? false
-  // 知らせる時間は、対応目安（営業時間）より短くする。空欄は 0 として送らない
-  const maxRemind = Math.max(1, Math.round(settings.sla.hours * 60) - 1)
-  const remindError =
-    Number.isInteger(draft.reminder_before_min) && draft.reminder_before_min >= 1 && draft.reminder_before_min <= maxRemind
-      ? null
-      : `知らせる時間は 1〜${maxRemind} 分で入れてください`
-  const dirty = edit !== null || inboundText !== null || receivingDraft !== null
-  const save = () => {
-    setMsg(null)
-    saveSettings({
-      ...settings,
-      connectors: { ...settings.connectors, slack: receiving },
-      slack: { ...draft, inbound_channels: inboundIds },
-    })
-      .then(() => {
-        setEdit(null)
-        setInboundText(null)
-        setReceivingDraft(null)
-        setError(null)
-        setMsg('保存しました')
-      })
-      .catch((e: unknown) => setError(errorMessage(e)))
-  }
+  const draft = d.slack
+  const setEdit = (next: SlackSettings) => auto.set((s) => ({ ...s, slack: next }))
+  const setReceivingDraft = (on: boolean) => auto.set((s) => ({ ...s, connectors: { ...s.connectors, slack: on } }))
+  const inbound = inboundText ?? draft.inbound_channels.join(', ')
+  const receiving = d.connectors.slack ?? false
+  const maxRemind = maxRemindOf(d)
   return (
-    <section className="panel" data-testid="slack">
+    <section className="panel" data-testid="slack" {...auto.handlers}>
       <h2>Slack</h2>
       {status.error && <div className="error small">{status.error}</div>}
       {st && (
@@ -152,7 +150,15 @@ function SlackPanel() {
           下のチャンネルの書き込みを受付箱に取り込む
         </label>
         <label htmlFor="slack-inbound">受信するチャンネル ID</label>
-        <input id="slack-inbound" value={inbound} placeholder="例: C0123456789" onChange={(e) => setInboundText(e.target.value)} />
+        <input
+          id="slack-inbound"
+          value={inbound}
+          placeholder="例: C0123456789"
+          onChange={(e) => {
+            setInboundText(e.target.value)
+            setEdit({ ...draft, inbound_channels: splitIds(e.target.value) })
+          }}
+        />
       </div>
       <h3>呼び出し</h3>
       <div className="form-grid">
@@ -163,7 +169,7 @@ function SlackPanel() {
           onChange={(e) => setEdit({ ...draft, dispatcher: e.target.value || null })}
         >
           <option value="">未設定</option>
-          {settings.staff
+          {d.staff
             .filter((m) => m.active || m.id === draft.dispatcher)
             .map((m) => (
               <option key={m.id} value={m.id}>
@@ -211,18 +217,8 @@ function SlackPanel() {
       </div>
       <p className="muted small">お問い合わせ窓口（元の本文）は流しません。</p>
       <div className="row">
-        <button
-          type="button"
-          disabled={badIds.length > 0 || remindError !== null || !dirty}
-          onClick={save}
-        >
-          保存
-        </button>
-        {badIds.length > 0 && <span className="error small">チャンネル ID の形式が違います: {badIds.join(', ')}</span>}
-        {remindError && <span className="error small">{remindError}</span>}
-        {msg && <span className="muted small">{msg}</span>}
+        <SaveState status={auto.status} error={auto.error} />
       </div>
-      {error && <div className="error small">{error}</div>}
     </section>
   )
 }
