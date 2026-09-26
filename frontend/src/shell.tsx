@@ -325,6 +325,9 @@ function Sidebar() {
         <NavLink to="/ops/settings" className={navCls}>
           設定
         </NavLink>
+        <NavLink to="/ops/audit" className={navCls}>
+          監査ログ
+        </NavLink>
       </NavGroup>
       <NavGroup
         id="eval"

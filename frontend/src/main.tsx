@@ -11,6 +11,7 @@ import { Escalations } from './ops/pages/Escalations'
 import { Inbox } from './ops/pages/Inbox'
 import { ItemPage } from './ops/pages/ItemPage'
 import { OpsHome } from './ops/pages/OpsHome'
+import { AuditLog } from './ops/pages/AuditLog'
 import { OpsSettings } from './ops/pages/OpsSettings'
 import { PiiReview } from './ops/pages/PiiReview'
 import { Review } from './ops/pages/Review'
@@ -91,6 +92,7 @@ const router = createBrowserRouter([
           { path: '/ops/channels', element: <Channels /> },
           { path: '/ops/connectors', element: <Connectors /> },
           { path: '/ops/settings', element: <OpsSettings /> },
+          { path: '/ops/audit', element: <AuditLog /> },
           { path: '/ops/tuning', element: <Tuning /> },
           { path: '/ops/staff', element: <Staff /> },
           { path: '/tools/tone', element: <TonePage /> },

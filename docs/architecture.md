@@ -107,6 +107,7 @@ flowchart LR
 | `tuning.py` | 閾値の調整（正解の分かっている件から、閾値ごとの自動処理率と誤り率を出して提案する） |
 | `misses.py` | 検知漏れの報告の集計。「候補外に残っている可能性」の閾値をどこまで下げれば見逃しの何割を拾えたかと、増える確認の件数を出す |
 | `importers.py` | 既存の問い合わせのファイルを読む（CSV の UTF-8／Shift_JIS、.xlsx、.eml・mbox、Slack のエクスポート）。標準ライブラリだけで読む |
+| `audit.py` | 監査ログの CSV。差出人・メモの本文・個人情報の候補を伏せ、経過の詳しいデータは出さない（[ADR-0026](adr/0026-audit-log-csv-without-content.md)） |
 | `kev_queue.py` | Kev の処理待ち。次の段階で Kev を使う件の数と、最近 20 回の Kev の所要時間の中央値から、処理し終えるまでの見込みを出す（overview の `kev_queue`） |
 | `pii_eval.py` | 個人情報の判定（Kev）の混同行列。人が確認した件だけで、候補ごとと「候補外の残り」を集計する |
 | `sla.py` | エスカレーションの対応目安。営業時間（曜日・時刻・休業日）だけを数える |
@@ -232,6 +233,7 @@ flowchart TD
 | `POST /api/ops/import/parse` | 取り込むファイル（base64）を読み、表かメッセージにして返す |
 | `POST /api/ops/items/{id}/pii`、`PUT /items/{id}/pii/draft` | 個人情報の確定・下書きの保存 |
 | `POST /api/ops/items/{id}/miss`、`GET /misses` | 検知漏れの報告・その集計 |
+| `GET /api/ops/audit.csv`、`/audit/exports` | 監査ログの CSV（期間・件・種類・文字コードで絞る）と、書き出しの記録 |
 | `GET /api/ops/pii-eval` | 個人情報の判定の混同行列（人が確認した件だけ） |
 | `POST /api/ops/items/{id}/decide`、`/assign`、`/note`、`/close`、`/retry` | 人の操作（`/close` はエスカレーション中と振り分け済みの件） |
 | `POST /api/ops/bulk/pii`、`/bulk/assign` | まとめて処理（件ごとに成否を返す） |

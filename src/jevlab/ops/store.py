@@ -62,6 +62,13 @@ CREATE TABLE IF NOT EXISTS pii_misses (
   at TEXT NOT NULL,
   UNIQUE(item_id, start, "end")
 );
+-- 監査ログを CSV に出した記録（いつ・どの条件で・何行）
+CREATE TABLE IF NOT EXISTS audit_exports (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  at TEXT NOT NULL,
+  conditions TEXT NOT NULL,
+  rows INTEGER NOT NULL
+);
 CREATE TABLE IF NOT EXISTS settings (
   key TEXT PRIMARY KEY,
   value TEXT NOT NULL
@@ -285,6 +292,44 @@ class Store:
         with self._lock:
             row = self._db.execute("SELECT MAX(id) AS m FROM events").fetchone()
         return int(row["m"] or 0)
+
+    def query_events(
+        self,
+        *,
+        start: str | None = None,
+        end: str | None = None,
+        item_id: str | None = None,
+        kinds: Sequence[str] = (),
+        limit: int = 100_000,
+    ) -> list[Event]:
+        """監査ログの出力用。日時（UTC の ISO 8601。end は含まない）・件・種類で絞り、古い順に返す。"""
+        where: list[str] = []
+        args: list[object] = []
+        if start:
+            where.append("at >= ?")
+            args.append(start)
+        if end:
+            where.append("at < ?")
+            args.append(end)
+        if item_id:
+            where.append("item_id = ?")
+            args.append(item_id)
+        if kinds:
+            where.append(f"kind IN ({', '.join('?' for _ in kinds)})")
+            args.extend(kinds)
+        sql = "SELECT * FROM events" + (f" WHERE {' AND '.join(where)}" if where else "") + " ORDER BY id LIMIT ?"
+        return self._events(sql, (*args, limit))
+
+    def add_audit_export(self, conditions: str, rows: int) -> None:
+        with self._tx() as db:
+            db.execute("INSERT INTO audit_exports(at, conditions, rows) VALUES(?, ?, ?)", (now_iso(), conditions, rows))
+
+    def audit_exports(self, limit: int = 10) -> list[dict[str, object]]:
+        with self._lock:
+            rows = self._db.execute(
+                "SELECT at, conditions, rows FROM audit_exports ORDER BY id DESC LIMIT ?", (limit,)
+            ).fetchall()
+        return [{"at": r["at"], "conditions": r["conditions"], "rows": r["rows"]} for r in rows]
 
     def recent_events_by(self, actor: str, limit: int = 20) -> list[Event]:
         """主体ごとの最近の経過（新しい順）。Kev の所要時間の目安に使う。"""

@@ -212,6 +212,12 @@ export interface SimulatorState {
   total: number
 }
 
+export interface AuditExport {
+  at: string
+  conditions: string
+  rows: number
+}
+
 export interface KevQueue {
   waiting: number
   running: number
@@ -450,6 +456,7 @@ export const ops = {
   assignment: () => call<AssignStats>('GET', '/assignment'),
   scopeDraft: (staffId: string) =>
     call<ScopeDraft>('POST', `/staff/${encodeURIComponent(staffId)}/scope-draft`, {}),
+  auditExports: () => call<AuditExport[]>('GET', '/audit/exports'),
   tuning: (source: 'human' | 'expected', targetError: number) =>
     call<TuningReport>('GET', `/tuning?source=${source}&target_error=${targetError}`),
 }

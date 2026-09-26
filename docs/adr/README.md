@@ -31,6 +31,7 @@
 | [0023](0023-worktree-and-pr-workflow.md) | 並行の作業は worktree と PR で分ける | 採用 |
 | [0024](0024-escalation-close-notice-in-thread-only.md) | エスカレーションの完了は、エスカレーションのスレッドだけで知らせる | 採用 |
 | [0025](0025-provisional-assignment.md) | 担当の推定が閾値に届かなくても、仮で割り当てる | 採用 |
+| [0026](0026-audit-log-csv-without-content.md) | 監査ログの CSV には本文と個人情報を出さない | 採用 |
 
 ## 運用のきまり
 

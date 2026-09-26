@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import base64
+import csv
+import io
 import json
 import time
 from collections.abc import Iterator
@@ -298,6 +300,25 @@ def test_fast_simulator_ingests_everything_at_once(client: TestClient) -> None:
     # 間隔なしで全件を受信し、最後まで流すと止まる
     assert ov["simulator"]["cursor"] == ov["simulator"]["total"] and ov["simulator"]["playing"] is False
     assert ov["flow"]["received"] == ov["simulator"]["total"] and ov["flow"]["waiting"] == 0
+
+
+def test_audit_csv_filters_masks_and_records_the_export(client: TestClient) -> None:
+    configure(client, guard__use_model=False, guard__human_check=False)
+    first = ingest(client, "在庫はありますか", from_name="山田 花子", from_address="hanako@example.com")
+    ingest(client, "別の件です")
+    settle(client, first)
+    res = client.get("/api/ops/audit.csv", params={"item": first})
+    assert res.status_code == 200 and "attachment" in res.headers["content-disposition"]
+    rows = list(csv.reader(io.StringIO(res.content.decode("utf-8-sig"))))
+    assert rows[0][0] == "日時" and len(rows) > 2 and all(r[1] == first for r in rows[1:])
+    text = res.content.decode("utf-8-sig")
+    assert "山田" not in text and "hanako@example.com" not in text and "在庫はありますか" not in text
+    only = client.get("/api/ops/audit.csv", params={"kinds": ["received"], "encoding": "shift_jis"})
+    kinds = {r[2] for r in list(csv.reader(io.StringIO(only.content.decode("cp932"))))[1:]}
+    assert kinds == {"受信"}
+    assert client.get("/api/ops/audit.csv", params={"from": "2026-09-27", "to": "2026-09-26"}).status_code == 422
+    exports = client.get("/api/ops/audit/exports").json()
+    assert len(exports) == 2 and "Shift_JIS" in exports[0]["conditions"]
 
 
 def test_disconnected_connector_rejects_ingest(client: TestClient) -> None:
