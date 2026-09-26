@@ -73,6 +73,13 @@
    - 利用者の要望: 画面の説明も応答も短く。例・補足の説明は付けない。
    - 受付箱で完了した件を既定で隠す（「完了を表示」で切り替え）。
    - 担当者の「担当」オン／オフ。オフの人は一覧に残したまま、推定の選択肢・割り当て・振り分け担当（当番）から外す。
+   - 言い方チェック: 相手・場面を既定で「指定なし」に。履歴を開いても入力欄が動かない。結果の枠はスクロールなしで見える高さ。
+8. **現場に合わせた取り込み**（[ADR-0015](adr/0015-import-existing-inquiries.md)）
+   - ファイル取り込み: CSV（UTF-8・Shift_JIS）、.xlsx、.eml・mbox、Slack のエクスポート（.zip）。過去の分類・受信日時の列も取り込む。
+   - 過去の問い合わせとして取り込む（試算用）: 仕分けまで行い、投稿・人の対応には回さず完了にする。閾値の調整で「想定ラベル・過去の分類」を選ぶと試算できる。
+   - 件の詳細に「メールで返信」（`mailto:`）。
+   - Slack・疑似チャンネルの投稿を、見出し・分類・理由・項目の 1 行ずつに。理由から「〜のため人が対応」を外した。
+   - 利用者の環境: メールは主に Outlook。Excel・CSV もある。Shift_JIS は必須。
 
 ---
 
@@ -161,6 +168,7 @@ FastAPI（src/jevlab/web.py、127.0.0.1:8000）
 | `src/jevlab/ops/simulator.py` | デモの受信シミュレータ（`demo_inbox.jsonl` の 64 件を順に流す） |
 | `src/jevlab/ops/tuning.py` | しきい値ごとの自動処理率と誤り率の曲線、しきい値の提案 |
 | `src/jevlab/ops/misses.py` | 検知漏れの報告の集計と、「候補外に残っている可能性」の閾値の目安 |
+| `src/jevlab/ops/importers.py` | 既存の問い合わせのファイルを読む（CSV・.xlsx・.eml・mbox・Slack のエクスポート） |
 | `src/jevlab/ops/pii_eval.py` | 個人情報の判定（Kev）の混同行列（人が確認した件だけ） |
 | `src/jevlab/ops/sla.py` | エスカレーションの対応目安（営業時間で数える） |
 | `src/jevlab/ops/slack.py` | 実際の Slack とのつなぎ込み（Socket Mode。送信・スレッド・知らせ・受信） |
@@ -171,7 +179,7 @@ FastAPI（src/jevlab/web.py、127.0.0.1:8000）
 | `frontend/src/pages/` | 評価ダッシュボード（一覧・ライブ評価・単発判定と履歴） |
 | `frontend/src/ops/` | 運用ダッシュボード（`pages/` に各画面、`state.tsx` に定期取得、`components.tsx` に共通部品） |
 | `frontend/src/tools/` | 言い方チェック |
-| `tests/` | pytest（2026-09-26 時点で 185 件） |
+| `tests/` | pytest（2026-09-26 時点で 197 件） |
 | `scripts/serve.sh` / `start.sh` / `dev.sh` | 起動（ビルド版・ビルドして起動・開発用）。`.env` があれば `uv run --env-file .env` で読む |
 | `scripts/check_env.py` | `.env` の `TYPESAFE_API_KEY` を、値を表示せずに検証する（疎通の確認は Noul 1 問） |
 | `scripts/build_docs.py` | `docs/**/*.md` を `docs/html/` に書き出す |
@@ -259,7 +267,7 @@ cd frontend && npx tsc -b && npm run lint && npm run build
   - 閾値の調整（検知漏れの集計を含む）、設定（ガードの有効・規則だけ、判断が割れた件の扱い、対応目安）、ダッシュボード（流れ図・KPI・受信シミュレータ・経過）
   - 件の詳細からの検知漏れの報告
 - **ツール:** 言い方チェック（判定・目的の上書き・文ごとの見え方・Claude の書き換え案・書き換え後の再判定と比較）。
-- **テスト:** pytest 185 件（画面をビルドしていない環境では、画面の配信の 1 件が 503 で失敗する。5 章を参照）。
+- **テスト:** pytest 197 件（画面をビルドしていない環境では、画面の配信の 1 件が 503 で失敗する。5 章を参照）。
 
 ### 実測の記録
 - **Kev の個人情報検出（デモ 60 件）:** 検出 43・見落とし 3・誤検出 0。

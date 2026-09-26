@@ -116,8 +116,10 @@ class Item(BaseModel):
     audit_result: Literal["ok", "fixed"] | None = None
     cost_usd: float = 0.0
     error: str | None = None
-    # デモ用の想定ラベル（評価との照合用。実運用では存在しない）
+    # デモ用の想定ラベル、または取り込んだ過去の分類（評価・試算との照合用）
     expected: dict[str, Any] | None = None
+    # 過去の問い合わせとして取り込んだ件（導入前の試算用）。投稿・人の対応には回さず、運用の集計にも入れない
+    backfill: bool = False
     updated_at: str
     closed_at: str | None = None
 
@@ -392,3 +394,7 @@ class IngestRequest(BaseModel):
     subject: str = Field("", max_length=200)
     body: str = Field(min_length=1, max_length=4000)
     expected: dict[str, Any] | None = None
+    # 過去の問い合わせとして取り込む（導入前の試算用）。仕分けまで行い、投稿・人の対応には回さずに完了にする
+    backfill: bool = False
+    # 過去の問い合わせの元の受信日時（ISO 8601）。backfill のときだけ使う
+    received_at: str | None = Field(None, max_length=40)

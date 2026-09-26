@@ -106,6 +106,7 @@ flowchart LR
 | `simulator.py` | デモの受信（`demo_inbox.jsonl` の 64 件を一定間隔で流す） |
 | `tuning.py` | 閾値の調整（正解の分かっている件から、閾値ごとの自動処理率と誤り率を出して提案する） |
 | `misses.py` | 検知漏れの報告の集計。「候補外に残っている可能性」の閾値をどこまで下げれば見逃しの何割を拾えたかと、増える確認の件数を出す |
+| `importers.py` | 既存の問い合わせのファイルを読む（CSV の UTF-8／Shift_JIS、.xlsx、.eml・mbox、Slack のエクスポート）。標準ライブラリだけで読む |
 | `pii_eval.py` | 個人情報の判定（Kev）の混同行列。人が確認した件だけで、候補ごとと「候補外の残り」を集計する |
 | `sla.py` | エスカレーションの対応目安。営業時間（曜日・時刻・休業日）だけを数える |
 | `slack.py` | 実際の Slack とのつなぎ込み（Socket Mode）。投稿の転送・エスカレーションのスレッド・対応目安前の知らせ・受信の取り込み（[ADR-0013](adr/0013-slack-socket-mode.md)） |
@@ -210,7 +211,8 @@ flowchart TD
 | `kev_reference` | ブロックした件を Kev で参考に判定した結果（分類・担当の推定） |
 | `slack_channel` / `slack_ts` / `slack_notified` / `slack_reminded` | 実際の Slack に投稿した件の親メッセージ（振り分け・エスカレーションの最初の投稿）と、返信・知らせを送ったか |
 | `audit` / `audit_result` | 抜き取り確認の対象か・結果 |
-| `expected` | デモデータの想定ラベル（評価用。実運用には無い） |
+| `expected` | デモデータの想定ラベル、または取り込んだ過去の分類（評価・試算用） |
+| `backfill` | 過去の問い合わせとして取り込んだ件（試算用）。仕分けまで行い、投稿・人の対応には回さず完了にする。運用の集計に入れない |
 
 ## 5. API の一覧
 
@@ -221,7 +223,8 @@ flowchart TD
 | `POST /api/apps/{name}/judge`、`/samples/{id}/judge`、`/evaluate`、`/summary` | 判定・評価 |
 | `GET /api/runs/latest`、`/api/apps/{name}/runs` | 評価の記録 |
 | `GET /api/ops/meta`、`/overview`、`/items`、`/items/{id}` | 運用の定義・集計・件 |
-| `POST /api/ops/ingest`、`/chat`、`/import` | 受信（手入力・チャット・CSV） |
+| `POST /api/ops/ingest`、`/chat`、`/import` | 受信（手入力・チャット・ファイル）。`/import` は過去の分類・受信日時・試算用（`backfill`）を受け付ける |
+| `POST /api/ops/import/parse` | 取り込むファイル（base64）を読み、表かメッセージにして返す |
 | `POST /api/ops/items/{id}/pii`、`PUT /items/{id}/pii/draft` | 個人情報の確定・下書きの保存 |
 | `POST /api/ops/items/{id}/miss`、`GET /misses` | 検知漏れの報告・その集計 |
 | `GET /api/ops/pii-eval` | 個人情報の判定の混同行列（人が確認した件だけ） |

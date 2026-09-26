@@ -25,6 +25,7 @@ from jevlab.ops import questions as oq
 from jevlab.ops.models import (
     MISS_STATUSES,
     Actor,
+    Channel,
     Decider,
     GuardSettings,
     IngestRequest,
@@ -139,21 +140,21 @@ def decide_route(item: Item, settings: Settings) -> tuple[Route, str]:
     if c.escalate_strong_frustration and frustration is not None:
         p2 = frustration.probabilities.get("2")
         if p2 is not None and p2 >= c.strong_frustration_at:
-            return "escalated", f"強い不満の確率 {p2:.2f} ≥ {c.strong_frustration_at:.2f} のため人が対応"
+            return "escalated", f"強い不満の確率 {p2:.2f} ≥ {c.strong_frustration_at:.2f}"
         if p2 is None and frustration.prediction == 2:
-            return "escalated", "強い不満（不満度 2）のため人が対応"
+            return "escalated", "強い不満（不満度 2）"
     if c.escalate_urgent and urgent is not None and urgent.prediction is True:
-        return "escalated", f"緊急（{urgent.value or 0:.2f}）のため人が対応"
+        return "escalated", f"緊急（{urgent.value or 0:.2f}）"
     conf = item.confidence or 0.0
     auto = c.label_thresholds.get(item.category or "", c.auto_threshold)
     if conf >= auto:
         split = split_reason(answers, c.split_margin)
         if split:
-            return "review", f"判断が割れているため人が確認（{split}）"
+            return "review", f"判断が割れている（{split}）"
         return "routed", f"確信度 {conf:.2f} ≥ 自動の閾値 {auto:.2f}"
     if conf >= c.review_threshold:
-        return "review", f"確信度 {conf:.2f}（{c.review_threshold:.2f}〜{auto:.2f}）のため人が確認"
-    return "escalated", f"確信度 {conf:.2f} < {c.review_threshold:.2f} のため人が判断"
+        return "review", f"確信度 {conf:.2f}（{c.review_threshold:.2f}〜{auto:.2f}）"
+    return "escalated", f"確信度 {conf:.2f} < {c.review_threshold:.2f}"
 
 
 # Score が「割れている」とみなす確率（離れた 2 つの段階がどちらもこれ以上）
@@ -223,10 +224,12 @@ class Pipeline:
 
     # ---- 受信 ----
 
-    def ingest(self, req: IngestRequest, *, via: str | None = None) -> Item:
+    def ingest(self, req: IngestRequest, *, via: str | None = None, connector: Channel | None = None) -> Item:
+        """受信する。connector は受け付けるかを決めるコネクタ（ファイルの取り込みでは、経路にかかわらず CSV 取り込み）。"""
         settings = self.store.settings()
-        if not settings.connectors.get(req.channel, False):
-            raise PermissionError(f"コネクタ「{req.channel}」は切断されています（コネクタ画面で接続してください）")
+        gate = connector or req.channel
+        if not settings.connectors.get(gate, False):
+            raise PermissionError(f"コネクタ「{gate}」は切断されています（コネクタ画面で接続してください）")
         item = self.store.add_item(req)
         sender = f"{req.from_name} <{req.from_address}>" if req.from_address else req.from_name or "不明"
         self.store.add_event(item.id, "received", "connector", f"{via or req.channel} で受信: {sender}")
@@ -264,6 +267,9 @@ class Pipeline:
             if current is None:
                 return
             if current.pii_decision == "blocked":
+                if current.backfill:
+                    self._close_backfill(current, None, "個人情報のため Jev に送らない（試算の対象外）")
+                    return
                 await self._handle_blocked(current, settings)
                 return
             await self._classify_and_route(current, settings)
@@ -283,6 +289,18 @@ class Pipeline:
                 item.id, lambda i: i.model_copy(update={"pii_decision": "skipped", "sent_text": i.text})
             )
         spans = detect(item.text)
+        if item.backfill:
+            # 過去の問い合わせは人が確認しないので、候補をすべて個人情報として伏せる（安全側。Kev も使わない）
+            judged = [s.model_copy(update={"confirmed": True}) for s in spans]
+            self.store.add_event(
+                item.id,
+                "guard",
+                "system",
+                f"過去の問い合わせ（試算用）: 候補 {len(spans)} 件をすべて個人情報として扱う（{_types_text(judged)}）",
+                {"candidates": [s.model_dump() for s in judged]},
+            )
+            item = self.store.update(item.id, lambda i: i.model_copy(update={"pii": judged, "pii_leftover": None}))
+            return self._apply_pii(item, judged, settings, force_block=False, actor="system")
         if g.use_model:
             judged, leftover = await self._guard_with_model(item, spans, g)
         else:
@@ -384,7 +402,7 @@ class Pipeline:
             lambda i: i.model_copy(
                 update={
                     "status": "escalated",
-                    "reason": f"{reason}。人が仕分け・対応します",
+                    "reason": reason,
                     "first_route": "escalated",
                 }
             ),
@@ -394,7 +412,7 @@ class Pipeline:
         self.store.add_post(
             ESCALATION_CHANNEL,
             "jevlab",
-            f"{item.id}「{safe_title(item)}」: 個人情報のため人が対応",
+            f"{item.id}「{safe_title(item)}」\n理由: 個人情報（Jev に送らない）",
             item.id,
         )
         await self._kev_reference(item, settings)
@@ -515,8 +533,22 @@ class Pipeline:
         )
         self._route(item, settings)
 
+    def _close_backfill(self, item: Item, route: Route | None, reason: str) -> None:
+        """過去の問い合わせ（試算用）を、振り分けの結果だけ残して完了にする。投稿・割り当ては行わない。"""
+        self.store.update(
+            item.id,
+            lambda i: i.model_copy(
+                update={"status": "closed", "first_route": route, "reason": reason, "closed_at": now_iso()}
+            ),
+        )
+        self.store.add_event(item.id, "close", "system", f"試算: {reason}")
+
     def _route(self, item: Item, settings: Settings) -> None:
         route, reason = decide_route(item, settings)
+        if item.backfill:
+            label = {"routed": "自動で振り分け", "review": "分類の確認", "escalated": "エスカレーション"}[route]
+            self._close_backfill(item, route, f"{label}になる（{reason}）")
+            return
         audit = route == "routed" and _stable_unit(f"audit:{item.id}") < settings.audit_rate
         self.store.update(
             item.id,
@@ -543,7 +575,7 @@ class Pipeline:
                 self.store.add_post(
                     ESCALATION_CHANNEL,
                     "jevlab",
-                    f"{item.id}「{safe_title(item)}」{category_label(item.category)}: {reason}",
+                    f"{item.id}「{safe_title(item)}」\n分類: {category_label(item.category)}\n理由: {reason}",
                     item.id,
                     item.fields,
                 )
@@ -798,12 +830,15 @@ class Pipeline:
         # （完了は Slack では元の投稿のスレッドとリアクションで知らせる）
         if item.status == "escalated" or fixed:
             channel = ROUTE_CHANNELS.get(final or "", "#cs-その他")
-            who = f"（担当: {self.staff_name(updated.assignee)}）" if updated.assignee else ""
-            fix = f"・分類を {category_label(item.category)} から修正" if fixed and item.status == "routed" else ""
+            lines = [f"{item_id}「{safe_title(updated)}」", "対応完了"]
+            if updated.assignee:
+                lines.append(f"担当: {self.staff_name(updated.assignee)}")
+            if fixed and item.status == "routed":
+                lines.append(f"分類を {category_label(item.category)} から修正")
             self.store.add_post(
                 channel,
                 "担当者（対応完了）",
-                f"{item_id}「{safe_title(updated)}」対応完了{who}{fix}",
+                "\n".join(lines),
                 item_id,
                 updated.fields,
             )

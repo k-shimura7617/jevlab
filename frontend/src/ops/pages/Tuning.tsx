@@ -222,7 +222,7 @@ export function Tuning() {
               人が確認した件
             </button>
             <button type="button" className="seg-btn" aria-pressed={source === 'expected'} onClick={() => setSource('expected')}>
-              デモの想定ラベル
+              想定ラベル・過去の分類
             </button>
           </div>
           <label className="muted small" htmlFor="target-error">
@@ -244,7 +244,7 @@ export function Tuning() {
               <Hint text="確認待ちで確定・抜き取り確認・エスカレーションで完了した件。自動で振り分けて誰も見ていない件は含めない" />
             </>
           ) : (
-            'デモの想定ラベルが正解（検証用）'
+            'デモの想定ラベル・取り込んだ過去の分類が正解'
           )}
         </p>
         {report.error && <div className="error small">{report.error}</div>}

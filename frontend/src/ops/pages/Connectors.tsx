@@ -2,8 +2,8 @@ import { useState } from 'react'
 import { useNavigate } from 'react-router'
 import { errorMessage } from '../../api'
 import { Page, useTitle } from '../../shell'
-import { ops, type Channel, type ImportRow, type SlackSettings, type SlackState } from '../api'
-import { guessMapping, MAPPED_FIELDS, parseCsv, SAMPLE_CSV, type MappedField } from '../csv'
+import { ops, type Channel, type ImportRow, type ParsedFile, type SlackSettings, type SlackState } from '../api'
+import { guessCategory, guessMapping, MAPPED_FIELDS, SAMPLE_CSV, toIsoDate, type MappedField } from '../csv'
 import { useOps, usePolling } from '../state'
 
 const CONNECTORS: { id: Channel; name: string; icon: string; real: string; desc: string }[] = [
@@ -227,151 +227,244 @@ function SlackPanel() {
   )
 }
 
-function CsvImport() {
-  const { settings, refresh } = useOps()
+const MAX_FILE_MB = 20
+const CHUNK = 500
+const SOURCE_LABELS: Record<ParsedFile['channel'], string> = { csv: '表（CSV・Excel）', mail: 'メール', slack: 'Slack' }
+
+/** ファイルを base64 で読む（サーバで形式を見分けて読む）。 */
+const readBase64 = (f: File): Promise<string> =>
+  new Promise((resolve, reject) => {
+    const r = new FileReader()
+    r.onload = () => resolve(String(r.result).replace(/^data:[^,]*,/, ''))
+    r.onerror = () => reject(new Error(`${f.name} を読めませんでした`))
+    r.readAsDataURL(f)
+  })
+
+/** 既存の問い合わせのファイル（CSV・Excel・メール・Slack のエクスポート）を取り込む。 */
+function FileImport() {
+  const { settings, meta, refresh } = useOps()
   const navigate = useNavigate()
   const [fileName, setFileName] = useState('')
-  const [rows, setRows] = useState<string[][] | null>(null)
+  const [parsed, setParsed] = useState<ParsedFile | null>(null)
   const [hasHeader, setHasHeader] = useState(true)
   const [mapping, setMapping] = useState<Record<MappedField, number> | null>(null)
+  // 過去の分類の値 → jevlab の分類（空文字は使わない）
+  const [valueMap, setValueMap] = useState<Record<string, string>>({})
+  const [backfill, setBackfill] = useState(false)
   const [busy, setBusy] = useState(false)
+  const [progress, setProgress] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [done, setDone] = useState<string | null>(null)
+  const labels = meta?.categories ?? {}
 
-  const load = (name: string, text: string) => {
+  const load = (f: File) => {
     setError(null)
     setDone(null)
-    try {
-      const parsed = parseCsv(text)
-      if (!parsed.length) throw new Error('行がありません')
-      setFileName(name)
-      setRows(parsed)
-      setMapping(guessMapping(parsed[0] ?? []))
-    } catch (e: unknown) {
-      setRows(null)
-      setError(`CSV を読めませんでした: ${errorMessage(e)}`)
+    setParsed(null)
+    if (f.size > MAX_FILE_MB * 1024 * 1024) {
+      setError(`${MAX_FILE_MB}MB を超えるファイルは読めません（期間やラベルで分けて書き出してください）`)
+      return
     }
-  }
-  const header = rows?.[0] ?? []
-  const data = rows ? (hasHeader ? rows.slice(1) : rows) : []
-  const columns = Array.from({ length: Math.max(0, ...(rows ?? []).map((r) => r.length)) }, (_, i) =>
-    hasHeader ? header[i] || `列${i + 1}` : `列${i + 1}`,
-  )
-  const cell = (r: string[], f: MappedField) => (mapping && mapping[f] >= 0 ? (r[mapping[f]] ?? '') : '')
-  const mapped: ImportRow[] = data.map((r) => ({
-    from_name: cell(r, 'from_name').trim(),
-    from_address: cell(r, 'from_address').trim(),
-    subject: cell(r, 'subject').trim(),
-    body: cell(r, 'body'),
-  }))
-  const valid = mapped.filter((r) => r.body.trim())
-  const enabled = settings?.connectors.csv ?? false
-
-  const submit = () => {
     setBusy(true)
-    setError(null)
-    ops
-      .importRows(fileName, valid)
-      .then((res) => {
-        setDone(`${res.imported} 件を取り込みました（${res.ids[0]} 〜 ${res.ids.at(-1)}）`)
-        setRows(null)
-        refresh()
+    readBase64(f)
+      .then((data) => ops.parseImport(f.name, data))
+      .then((p) => {
+        if (p.kind === 'table' && !p.table.length) throw new Error('行がありません')
+        setFileName(f.name)
+        setParsed(p)
+        const m = p.kind === 'table' ? guessMapping(p.table[0] ?? []) : null
+        setMapping(m)
+        setBackfill(m !== null && m.category >= 0)
+        setValueMap({})
       })
       .catch((e: unknown) => setError(errorMessage(e)))
       .finally(() => setBusy(false))
   }
 
+  const table = parsed?.kind === 'table' ? parsed.table : []
+  const header = table[0] ?? []
+  const data = hasHeader ? table.slice(1) : table
+  const columns = Array.from({ length: Math.max(0, ...table.map((r) => r.length)) }, (_, i) =>
+    hasHeader ? header[i] || `列${i + 1}` : `列${i + 1}`,
+  )
+  const cell = (r: string[], f: MappedField) => (mapping && mapping[f] >= 0 ? (r[mapping[f]] ?? '') : '')
+  const categoryValues = mapping && mapping.category >= 0 ? [...new Set(data.map((r) => cell(r, 'category').trim()).filter(Boolean))] : []
+  const categoryOf = (v: string) => valueMap[v.trim()] ?? guessCategory(v, labels)
+  const rows: (ImportRow & { source?: string })[] =
+    parsed?.kind === 'messages'
+      ? parsed.messages
+      : data.map((r) => ({
+          from_name: cell(r, 'from_name').trim(),
+          from_address: cell(r, 'from_address').trim(),
+          subject: cell(r, 'subject').trim(),
+          body: cell(r, 'body'),
+          category: categoryOf(cell(r, 'category')) || null,
+          received_at: toIsoDate(cell(r, 'received_at')),
+        }))
+  const valid = rows.filter((r) => r.body.trim())
+  const labeled = valid.filter((r) => r.category).length
+  const enabled = settings?.connectors.csv ?? false
+
+  const submit = async () => {
+    if (!parsed) return
+    setBusy(true)
+    setError(null)
+    const ids: string[] = []
+    try {
+      for (let i = 0; i < valid.length; i += CHUNK) {
+        setProgress(`${i} / ${valid.length} 件`)
+        const res = await ops.importRows(fileName, parsed.channel, backfill, valid.slice(i, i + CHUNK))
+        ids.push(...res.ids)
+      }
+      setDone(`${ids.length} 件を取り込みました（${ids[0]} 〜 ${ids.at(-1)}）`)
+      setParsed(null)
+      refresh()
+    } catch (e: unknown) {
+      setError(`${ids.length} 件まで取り込んだところで失敗しました: ${errorMessage(e)}`)
+    } finally {
+      setBusy(false)
+      setProgress(null)
+    }
+  }
+
   return (
     <section className="panel" data-testid="csv-import" id="csv">
       <div className="panel-head">
-        <h2>CSV 取り込み</h2>
-        <a className="small" href={`data:text/csv;charset=utf-8,${encodeURIComponent(`﻿${SAMPLE_CSV}`)}`} download="sample_inquiries.csv">
-          サンプル CSV をダウンロード
+        <h2>ファイル取り込み</h2>
+        <a className="small" href={`data:text/csv;charset=utf-8,${encodeURIComponent(`\ufeff${SAMPLE_CSV}`)}`} download="sample_inquiries.csv">
+          サンプル CSV
         </a>
       </div>
-      {!enabled && <div className="warn-box">CSV コネクタが切断されています。</div>}
+      {!enabled && <div className="warn-box">CSV 取り込みのコネクタが切断されています。</div>}
       <label
         className="dropzone"
         onDragOver={(e) => e.preventDefault()}
         onDrop={(e) => {
           e.preventDefault()
           const f = e.dataTransfer.files[0]
-          if (f) void f.text().then((t) => load(f.name, t)).catch((err: unknown) => setError(errorMessage(err)))
+          if (f) load(f)
         }}
       >
         <input
           type="file"
-          accept=".csv,text/csv"
+          accept=".csv,.txt,.xlsx,.eml,.mbox,.zip"
           onChange={(e) => {
             const f = e.target.files?.[0]
-            if (f) void f.text().then((t) => load(f.name, t)).catch((err: unknown) => setError(errorMessage(err)))
+            if (f) load(f)
             e.target.value = ''
           }}
         />
-        <span>CSV をドロップ／クリックで選択（UTF-8・500 行まで）</span>
+        <span>CSV（UTF-8・Shift_JIS）・Excel（.xlsx）・メール（.eml・.mbox）・Slack のエクスポート（.zip）</span>
       </label>
-      {rows && mapping && (
+      {busy && !parsed && <p className="muted small">読み込み中…</p>}
+      {parsed && (
         <>
           <div className="row">
             <strong>{fileName}</strong>
-            <span className="muted small">{data.length} 行</span>
-            <label className="small">
-              <input type="checkbox" checked={hasHeader} onChange={(e) => setHasHeader(e.target.checked)} /> 1 行目は見出し
-            </label>
-          </div>
-          <h3>列の対応</h3>
-          <div className="mapping">
-            {MAPPED_FIELDS.map((f) => (
-              <label key={f.id}>
-                <span>{f.label}</span>
-                <select value={mapping[f.id]} onChange={(e) => setMapping({ ...mapping, [f.id]: Number(e.target.value) })}>
-                  <option value={-1}>（使わない）</option>
-                  {columns.map((c, i) => (
-                    <option key={i} value={i}>
-                      {c}
-                    </option>
-                  ))}
-                </select>
+            <span className="muted small">
+              {SOURCE_LABELS[parsed.channel]} ／ {rows.length} 件{parsed.skipped > 0 && `（読めなかった ${parsed.skipped} 件を除く）`}
+            </span>
+            {parsed.kind === 'table' && (
+              <label className="small">
+                <input type="checkbox" checked={hasHeader} onChange={(e) => setHasHeader(e.target.checked)} /> 1 行目は見出し
               </label>
-            ))}
+            )}
           </div>
+          {parsed.kind === 'table' && mapping && (
+            <>
+              <h3>列の対応</h3>
+              <div className="mapping">
+                {MAPPED_FIELDS.map((f) => (
+                  <label key={f.id}>
+                    <span>{f.label}</span>
+                    <select
+                      value={mapping[f.id]}
+                      onChange={(e) => {
+                        const next = { ...mapping, [f.id]: Number(e.target.value) }
+                        setMapping(next)
+                        if (f.id === 'category') setBackfill(next.category >= 0)
+                      }}
+                    >
+                      <option value={-1}>（使わない）</option>
+                      {columns.map((c, i) => (
+                        <option key={i} value={i}>
+                          {c}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+                ))}
+              </div>
+              {categoryValues.length > 0 && (
+                <>
+                  <h3>過去の分類の対応</h3>
+                  <div className="mapping" data-testid="category-values">
+                    {categoryValues.slice(0, 30).map((v) => (
+                      <label key={v}>
+                        <span>{v}</span>
+                        <select value={categoryOf(v)} onChange={(e) => setValueMap({ ...valueMap, [v]: e.target.value })}>
+                          <option value="">（使わない）</option>
+                          {Object.entries(labels).map(([k, l]) => (
+                            <option key={k} value={k}>
+                              {l}
+                            </option>
+                          ))}
+                        </select>
+                      </label>
+                    ))}
+                  </div>
+                </>
+              )}
+            </>
+          )}
           <h3>先頭 5 件</h3>
           <div className="scroll">
             <table>
               <thead>
                 <tr>
+                  <th>受信日時</th>
                   <th>差出人</th>
-                  <th>アドレス</th>
                   <th>件名</th>
                   <th>本文</th>
+                  {parsed.kind === 'table' && <th>分類</th>}
+                  {parsed.channel === 'slack' && <th>チャンネル</th>}
                 </tr>
               </thead>
               <tbody>
-                {mapped.slice(0, 5).map((r, i) => (
+                {rows.slice(0, 5).map((r, i) => (
                   <tr key={i} className={r.body.trim() ? undefined : 'off'}>
-                    <td>{r.from_name || '-'}</td>
-                    <td>{r.from_address || '-'}</td>
+                    <td>{r.received_at ? new Date(r.received_at).toLocaleString('ja-JP') : '-'}</td>
+                    <td>{r.from_name || r.from_address || '-'}</td>
                     <td>{r.subject || '-'}</td>
                     <td className="body">{r.body || '（本文なし・取り込まない）'}</td>
+                    {parsed.kind === 'table' && <td>{r.category ? labels[r.category] : '-'}</td>}
+                    {parsed.channel === 'slack' && <td>{r.source}</td>}
                   </tr>
                 ))}
               </tbody>
             </table>
           </div>
+          <label className="small block">
+            <input type="checkbox" checked={backfill} onChange={(e) => setBackfill(e.target.checked)} /> 過去の問い合わせとして取り込む（試算用）
+          </label>
+          <p className="muted small">
+            {backfill
+              ? `投稿・人の対応には回さない。個人情報の候補はすべて伏せる。試算は「閾値の調整」→「想定ラベル・過去の分類」（分類あり ${labeled} 件）`
+              : '通常の流れ（個人情報の確認・振り分け・Slack）に乗せる'}
+          </p>
           <div className="row">
-            <button type="button" disabled={busy || !enabled || !valid.length || valid.length > 500} onClick={submit}>
-              {valid.length} 件を取り込む
+            <button type="button" disabled={busy || !enabled || !valid.length} onClick={() => void submit()}>
+              {busy && progress ? `取り込み中（${progress}）` : `${valid.length} 件を取り込む`}
             </button>
-            {mapped.length !== valid.length && <span className="muted small">本文が空の {mapped.length - valid.length} 行は取り込みません</span>}
-            {valid.length > 500 && <span className="error small">一度に取り込めるのは 500 件までです</span>}
+            {rows.length !== valid.length && <span className="muted small">本文が空の {rows.length - valid.length} 件は取り込みません</span>}
           </div>
         </>
       )}
       {done && (
         <div className="done-box">
           {done}{' '}
-          <button type="button" className="link-btn" onClick={() => navigate('/ops/inbox')}>
-            受付箱で見る
+          <button type="button" className="link-btn" onClick={() => navigate(backfill ? '/ops/tuning' : '/ops/inbox')}>
+            {backfill ? '閾値の調整で見る' : '受付箱で見る'}
           </button>
         </div>
       )}
@@ -391,7 +484,7 @@ export function Connectors() {
       </div>
       <ConnectorCards />
       <SlackPanel />
-      <CsvImport />
+      <FileImport />
       <section className="panel">
         <h2>API から登録する</h2>
         <p className="muted small">API コネクタが接続中なら、次の形で登録できます。</p>

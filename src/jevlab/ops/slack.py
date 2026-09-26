@@ -31,6 +31,7 @@ from pydantic import BaseModel
 
 from jevlab.ops.models import Event, IngestRequest, Item, Post, Settings, StaffMember
 from jevlab.ops.pipeline import ESCALATION_CHANNEL, ROUTE_CHANNELS, Pipeline, category_label
+from jevlab.ops.questions import FIELD_TITLES
 from jevlab.ops.sla import minutes_left
 from jevlab.ops.store import ItemNotFoundError
 
@@ -223,15 +224,16 @@ def sdk_inbound_factory(app_token: str, bot_token: str) -> InboundFactory:
 
 def message_text(post: Post) -> str:
     """疑似チャンネルの投稿を Slack 用の文にする（抽出した項目を添える）。"""
-    lines = [f"*{post.author}*: {post.text}"]
-    lines += [f"• {k}: {v}" for k, v in post.fields.items() if v]
+    # 見出し・分類・理由・項目を 1 行ずつに分ける
+    lines = [f"*{post.author}*", post.text]
+    lines += [f"• {FIELD_TITLES.get(k, k)}: {v}" for k, v in post.fields.items() if v]
     return "\n".join(lines)
 
 
 def post_text(post: Post, item: Item | None) -> str:
     """実際の Slack に流す文。ガードレールを通していない件は、件名に個人情報が残りうるので番号だけにする。"""
     if item is not None and item.pii_decision == "skipped":
-        return f"*{post.author}*: {item.id}（ガードレール無効のため件名は載せません）"
+        return f"*{post.author}*\n{item.id}（ガードレール無効のため件名は載せません）"
     return message_text(post)
 
 

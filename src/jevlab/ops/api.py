@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import base64
+import binascii
 from collections import Counter
 from collections.abc import Callable
 from datetime import UTC, datetime
@@ -12,7 +14,7 @@ from pydantic import BaseModel, Field
 
 from jevlab.apps.mail.questions import CATEGORY_LABELS
 from jevlab.core import kev_health, target
-from jevlab.ops import misses, pii_eval, tuning
+from jevlab.ops import importers, misses, pii_eval, tuning
 from jevlab.ops.models import (
     CHANNEL_LABELS,
     STATUSES,
@@ -196,7 +198,8 @@ def _accuracy(items: list[Item], final: bool) -> Accuracy:
 @router.get("/overview")
 async def overview(pipeline: PipelineDep) -> Overview:
     store = pipeline.store
-    items = store.items(limit=10_000)
+    # 過去の問い合わせ（試算用）は運用の集計に入れない
+    items = [i for i in store.items(limit=10_000) if not i.backfill]
     counts = Counter(i.status for i in items)
     decided = [i for i in items if i.first_route is not None]
     flow = Flow(
@@ -289,10 +292,17 @@ class ImportRow(BaseModel):
     from_address: str = Field("", max_length=200)
     subject: str = Field("", max_length=200)
     body: str = Field(min_length=1, max_length=4000)
+    # 過去の分類（mail の分類のキー）。導入前の試算の正解に使う
+    category: str | None = None
+    received_at: str | None = Field(None, max_length=40)
 
 
 class ImportRequest(BaseModel):
     file_name: str = Field("", max_length=200)
+    # 取り込んだ件の経路（表は CSV、メールのファイルはメール、Slack のエクスポートは Slack）
+    channel: Literal["csv", "mail", "slack"] = "csv"
+    # 過去の問い合わせとして取り込む（仕分けまで行い、投稿・人の対応には回さない）
+    backfill: bool = False
     rows: list[ImportRow] = Field(min_length=1, max_length=500)
 
 
@@ -303,12 +313,51 @@ class ImportResult(BaseModel):
 
 @router.post("/import")
 async def import_rows(req: ImportRequest, pipeline: PipelineDep) -> ImportResult:
-    via = f"CSV 取り込み（{req.file_name}）" if req.file_name else "CSV 取り込み"
+    bad = sorted({r.category for r in req.rows if r.category is not None and r.category not in CATEGORY_LABELS})
+    if bad:
+        raise HTTPException(status_code=422, detail=f"分類 {bad} は不明です（{' / '.join(CATEGORY_LABELS)}）")
+    via = f"ファイル取り込み（{req.file_name}）" if req.file_name else "ファイル取り込み"
+    if req.backfill:
+        via += "・過去の問い合わせ（試算用）"
     try:
-        items = [pipeline.ingest(IngestRequest(channel="csv", **r.model_dump()), via=via) for r in req.rows]
+        items = [
+            pipeline.ingest(
+                IngestRequest(
+                    channel=req.channel,
+                    from_name=r.from_name,
+                    from_address=r.from_address,
+                    subject=r.subject,
+                    body=r.body,
+                    expected={"category": r.category} if r.category else None,
+                    backfill=req.backfill,
+                    received_at=r.received_at,
+                ),
+                via=via,
+                connector="csv",
+            )
+            for r in req.rows
+        ]
     except PermissionError as e:
         raise _http(e) from e
     return ImportResult(imported=len(items), ids=[i.id for i in items])
+
+
+class ParseRequest(BaseModel):
+    file_name: str = Field(min_length=1, max_length=200)
+    # ファイルの中身（base64）。上限はおよそ 20MB
+    data: str = Field(min_length=1, max_length=28_000_000)
+
+
+@router.post("/import/parse")
+async def parse_import_file(req: ParseRequest) -> importers.ParsedFile:
+    try:
+        raw = base64.b64decode(req.data, validate=True)
+    except binascii.Error as e:
+        raise HTTPException(status_code=422, detail="ファイルの中身を読めません（base64 の誤り）") from e
+    try:
+        return importers.parse_file(req.file_name, raw)
+    except importers.FileFormatError as e:
+        raise HTTPException(status_code=422, detail=str(e)) from e
 
 
 class PiiDecision(BaseModel):
