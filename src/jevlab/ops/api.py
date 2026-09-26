@@ -6,16 +6,16 @@ import base64
 import binascii
 from collections import Counter
 from collections.abc import Callable
-from datetime import UTC, datetime
+from datetime import UTC, date, datetime
 from typing import Annotated, Literal
 
-from fastapi import APIRouter, Depends, HTTPException, Query, Request
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response
 from pydantic import BaseModel, Field
 
 from jevlab.apps.mail.questions import CATEGORY_LABELS
 from jevlab.core import kev_health, target
 from jevlab.core.generator import ClaudeModel, GenerateRequest, GenerationError, make_generator
-from jevlab.ops import importers, misses, pii_eval, scope_draft, tuning
+from jevlab.ops import audit, importers, misses, pii_eval, scope_draft, tuning
 from jevlab.ops.kev_queue import SAMPLES as KEV_SAMPLES
 from jevlab.ops.kev_queue import KevQueue
 from jevlab.ops.kev_queue import summarize as summarize_kev_queue
@@ -23,6 +23,7 @@ from jevlab.ops.models import (
     CHANNEL_LABELS,
     STATUSES,
     Event,
+    EventKind,
     IngestRequest,
     Item,
     MissReport,
@@ -721,3 +722,51 @@ async def tuning_report(
     target_error: Annotated[float, Query(ge=0, le=0.5)] = 0.02,
 ) -> tuning.TuningReport:
     return tuning.report(pipeline.store.items(limit=10_000), source, target_error, CATEGORY_LABELS)
+
+
+# ---- 監査ログ ----
+
+
+@router.get("/audit.csv")
+async def audit_csv(
+    pipeline: PipelineDep,
+    start: Annotated[date | None, Query(alias="from", description="日本時間の日付（この日を含む）")] = None,
+    end: Annotated[date | None, Query(alias="to", description="日本時間の日付（この日を含む）")] = None,
+    item: Annotated[str | None, Query(max_length=20)] = None,
+    kinds: Annotated[list[EventKind] | None, Query()] = None,
+    encoding: audit.Encoding = "utf-8",
+) -> Response:
+    if start and end and start > end:
+        raise HTTPException(status_code=422, detail="期間の始まりが終わりより後になっています")
+    lo, hi = audit.day_range(start, end)
+    store = pipeline.store
+    events = store.query_events(start=lo, end=hi, item_id=item or None, kinds=kinds or ())
+    conditions = "・".join(
+        x
+        for x in (
+            f"期間 {start or '最初'}〜{end or '最新'}",
+            f"件 {item}" if item else "",
+            f"種類 {'・'.join(audit.KIND_LABELS[k] for k in kinds)}" if kinds else "",
+            "Shift_JIS" if encoding == "shift_jis" else "UTF-8",
+        )
+        if x
+    )
+    # 出力したこと自体も記録に残す
+    store.add_audit_export(conditions, len(events))
+    name = f"jevlab-audit-{datetime.now(audit.TZ):%Y%m%d-%H%M%S}.csv"
+    return Response(
+        content=audit.to_csv(events, encoding),
+        media_type=f"text/csv; charset={'shift_jis' if encoding == 'shift_jis' else 'utf-8'}",
+        headers={"Content-Disposition": f'attachment; filename="{name}"'},
+    )
+
+
+class AuditExport(BaseModel):
+    at: str
+    conditions: str
+    rows: int
+
+
+@router.get("/audit/exports")
+async def audit_exports(pipeline: PipelineDep) -> list[AuditExport]:
+    return [AuditExport.model_validate(x) for x in pipeline.store.audit_exports()]

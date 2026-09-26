@@ -55,4 +55,3 @@ def test_summarize_estimates_time_from_recent_latencies() -> None:
     assert q.last_at == "2026-09-26T00:00:03+00:00"
     empty = summarize([], [], Settings(), concurrency=1)
     assert empty.waiting == 0 and empty.eta_s is None and empty.last_at is None
-
