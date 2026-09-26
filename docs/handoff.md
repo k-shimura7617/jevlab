@@ -7,11 +7,12 @@
 
 関連資料:
 - [docs/walkthrough.md](walkthrough.md) — 画面を 1 つずつ触る伴走ガイド
-- [docs/README.md](README.md) — 資料の索引（別途作成）
-- [docs/architecture.md](architecture.md) — 構成の詳細（別途作成）
-- [docs/adr/](adr/) — 設計判断の記録（別途作成）
-- [docs/jev.md](jev.md) — Jev（TypeSafe System One）の知見（別途作成）
-- [docs/research/](research/) — 調査メモ（Jev の紹介動画の分析など、別途作成）
+- [docs/README.md](README.md) — 資料の索引
+- [docs/architecture.md](architecture.md) — 構成の詳細
+- [docs/adr/](adr/) — 設計判断の記録
+- [docs/jev.md](jev.md) — Jev（TypeSafe System One）の知見
+- [docs/research/](research/) — 調査メモ（Jev の紹介動画の分析など）
+- [docs/slack-setup.md](slack-setup.md) — 実際の Slack とつなぐ手順
 - [SKILL.md](../SKILL.md) — TypeSafe 公式のスキル説明（Jev の使い方の一次情報への入口）
 
 ---
@@ -49,6 +50,19 @@
      - 個人情報の確認の編集を下書きとしてサーバに保持
      - ボタン名から「方針どおり」を廃止
    - `scripts/dev.sh` で Vite が止まる不具合を直した。
+5. **実際の Slack とのつなぎ込みと、運用の仕上げ**
+   - 実際の Slack とのつなぎ込み（Socket Mode）: 投稿の転送、エスカレーションの親の投稿とスレッドでの呼び出し、対応目安前の知らせ、受信用チャンネルからの取り込み（[ADR-0013](adr/0013-slack-socket-mode.md)、手順は [slack-setup.md](slack-setup.md)）。
+   - エスカレーションの対応目安を営業時間で数えるようにした（`ops/sla.py`）。
+   - ガードの切り替え: 「有効にする」（オフで元の本文のまま Jev に送る。デモ用）と「モデルで判定する」（オフで規則だけ。Kev を使わない）。
+   - ブロックした件に、Kev による参考の分類と担当の推定を添える（自動では使わない）。
+   - 検知漏れの報告（件の詳細から）と、その集計（閾値の調整の画面）。
+   - 自動の閾値を超えても、判断が割れている件（分類の上位 2 つが僅差・不満度が両端に割れている）は分類の確認に回す。
+   - 確信度を Jev の公式の定義で計算する（MOCK も同じ式。`core/confidence.py`）。
+   - Kev に接続できないときは、ヘッダーに理由を出す（`core/kev_health.py`）。
+   - 評価ダッシュボードの URL を `/eval/...` に移した（以前の `/apps/...` は移し替える）。最初の画面は運用ダッシュボード。
+   - 表示名「氏名の可能性」を「未確定の候補」に変え、入力チェックのエラー（422）を日本語の短い文で出すようにした。
+   - ボタン名を「マスクして仕分け」「そのまま仕分け」に変えた。
+   - リポジトリを GitHub（`k-shimura7617/jevlab`）で管理するようにした。
 
 ---
 
@@ -80,7 +94,7 @@
 - API キーはサーバ側だけで使う。サーバは 127.0.0.1 だけで待ち受ける。データはダミーだけを使う。
 
 ### Git・ドキュメント・テスト
-- 確認なしにコミット・push しない（現在、このディレクトリは Git リポジトリではない）。
+- 確認なしにコミット・push しない（リポジトリは GitHub の `k-shimura7617/jevlab`）。
 - README やドキュメントを頼まれずに作成・変更しない。ただし `docs/` 一式は利用者の依頼で作成したもので、上の方針で更新する。
 - テストを確認なしに削除・コメントアウトしない。既存の動作するコードを理由なくリファクタリングしない。
 
@@ -102,7 +116,8 @@ FastAPI（src/jevlab/web.py、127.0.0.1:8000）
   ├─ 評価ハーネス（/api/apps, /api/runs）── core/engine.py ── core/client.py ─┬─ Jev（api.typesafe.ai、課金）
   ├─ 運用（/api/ops）── ops/pipeline.py（ワーカー・シミュレータ）─────────────├─ Kev（127.0.0.1:8009、ローカル）
   │                      └─ ops/store.py（SQLite: var/ops.db）                  └─ MOCK（API を呼ばない）
-  └─ ツール（/api/tools）── tools/tone.py ── core/generator.py ── claude -p（Claude Code、サブスク枠）
+  ├─ ツール（/api/tools）── tools/tone.py ── core/generator.py ── claude -p（Claude Code、サブスク枠）
+  └─ Slack のコネクタ ── ops/slack.py ── Slack（Socket Mode。伏せた見出しの転送と、受信用チャンネルの取り込み）
 ```
 
 - **接続先（target）:** `jev` / `custom`（Kev などの互換サーバ）/ `mock` の 3 種類。1 つのサーバで同時に使い分ける。
@@ -111,7 +126,7 @@ FastAPI（src/jevlab/web.py、127.0.0.1:8000）
 - **画面:** Vite 8 + React 19 + TypeScript（strict）+ react-router 8。
   - `frontend/` をビルドすると `src/jevlab/static/` に出力され、FastAPI が配信する。
   - 開発時は Vite（5173）が `/api` を FastAPI に中継する。
-- **Python:** 3.12、uv で管理。依存は fastapi・typesafe-sdk・uvicorn だけ（開発用に pytest と ruff）。
+- **Python:** 3.12、uv で管理。依存は fastapi・slack-sdk・typesafe-sdk・uvicorn だけ（開発用に pytest と ruff）。
 
 ### ファイルの地図
 
@@ -120,6 +135,8 @@ FastAPI（src/jevlab/web.py、127.0.0.1:8000）
 | `src/jevlab/web.py` | FastAPI 本体。起動時（lifespan）に接続先・Store・Pipeline・ワーカー・シミュレータ・書き換えの同時実行枠を用意し、評価 API と SPA の配信を持つ |
 | `src/jevlab/core/target.py` | 接続先の決定（環境変数だけから決まる） |
 | `src/jevlab/core/client.py` | TypeSafe SDK クライアントの生成。MOCK の応答を作る。Kev の待ち時間は `KEV_TIMEOUT_S`（既定 120 秒） |
+| `src/jevlab/core/confidence.py` | Jev の確信度の定義（Choice・Score の確率から計算） |
+| `src/jevlab/core/kev_health.py` | Kev に接続できるかの確認（結果を 5 秒使い回す） |
 | `src/jevlab/core/engine.py` | アプリ定義（AppSpec）、判定結果の表示用変換（`answer_views`）、評価データとの照合と集計 |
 | `src/jevlab/core/metrics.py` | 正解率・Brier・MAE・信頼度曲線・ECE |
 | `src/jevlab/core/budget.py` | Jev の料金計算（入力 $0.042/100 万トークン、出力無料）と利用上限（既定 $1、`JEVLAB_BUDGET_USD`）。`var/usage.jsonl` に記録 |
@@ -127,12 +144,15 @@ FastAPI（src/jevlab/web.py、127.0.0.1:8000）
 | `src/jevlab/core/generator.py` | 文章生成の抽象（Generator）と `claude -p` 実装。API キーを子プロセスに渡さない |
 | `src/jevlab/apps/<name>/` | 評価用の小アプリ（`spec.py`・`questions.py`・`dataset.jsonl`）×8 |
 | `src/jevlab/ops/models.py` | 運用のデータ型（Item・Settings・StaffMember など）と既定値 |
-| `src/jevlab/ops/store.py` | SQLite の保存（items / events / posts / settings）。番号は連番で、空にしても再利用しない |
+| `src/jevlab/ops/store.py` | SQLite の保存（items / events / posts / pii_misses / seen_messages / settings）。番号は連番で、空にしても再利用しない |
 | `src/jevlab/ops/pii.py` | 個人情報の候補を規則（正規表現）で検出。マスク・ブロックの適用 |
 | `src/jevlab/ops/questions.py` | 運用で Jev/Kev に投げる質問（ガード・分類・項目抽出・優先度・担当の推定） |
 | `src/jevlab/ops/pipeline.py` | 処理の本体（受信 → ガード → 分類 → 振り分け）、人の操作（確定・割り当て・完了など）、ワーカー |
 | `src/jevlab/ops/simulator.py` | デモの受信シミュレータ（`demo_inbox.jsonl` の 64 件を順に流す） |
 | `src/jevlab/ops/tuning.py` | しきい値ごとの自動処理率と誤り率の曲線、しきい値の提案 |
+| `src/jevlab/ops/misses.py` | 検知漏れの報告の集計と、「候補外に残っている可能性」の閾値の目安 |
+| `src/jevlab/ops/sla.py` | エスカレーションの対応目安（営業時間で数える） |
+| `src/jevlab/ops/slack.py` | 実際の Slack とのつなぎ込み（Socket Mode。送信・スレッド・知らせ・受信） |
 | `src/jevlab/ops/api.py` | 運用の API（`/api/ops/...`） |
 | `src/jevlab/tools/tone.py` | 言い方チェックの質問・判定ロジック・書き換えのプロンプト |
 | `src/jevlab/tools/api.py` | ツールの API（`/api/tools/...`） |
@@ -140,8 +160,10 @@ FastAPI（src/jevlab/web.py、127.0.0.1:8000）
 | `frontend/src/pages/` | 評価ダッシュボード（一覧・ライブ評価・単発判定と履歴） |
 | `frontend/src/ops/` | 運用ダッシュボード（`pages/` に各画面、`state.tsx` に定期取得、`components.tsx` に共通部品） |
 | `frontend/src/tools/` | 言い方チェック |
-| `tests/` | pytest（2026-09-26 時点で 133 件） |
-| `scripts/serve.sh` / `start.sh` / `dev.sh` | 起動（ビルド版・ビルドして起動・開発用） |
+| `tests/` | pytest（2026-09-26 時点で 175 件） |
+| `scripts/serve.sh` / `start.sh` / `dev.sh` | 起動（ビルド版・ビルドして起動・開発用）。`.env` があれば `uv run --env-file .env` で読む |
+| `scripts/check_env.py` | `.env` の `TYPESAFE_API_KEY` を、値を表示せずに検証する（疎通の確認は Noul 1 問） |
+| `scripts/build_docs.py` | `docs/**/*.md` を `docs/html/` に書き出す |
 | `var/`（Git 対象外） | 実行時のデータ: `ops.db`・`usage.jsonl`・`runs.jsonl` |
 
 ---
@@ -166,6 +188,8 @@ FastAPI（src/jevlab/web.py、127.0.0.1:8000）
 | 言い方チェックは「判定＝Jev/Kev、生成＝Claude」 | Jev は判定だけを返す。書き換えは判定結果を入力に Claude が作り、それを Jev で判定し直して比べる |
 | 書き換えは `claude -p`（サブスク枠）で、Generator の抽象の裏に置く | すぐに試せ、あとで Anthropic API 版に差し替えられる。既定は sonnet（6 文面 × 3 モデルの比較で速さと質の釣り合いが最良） |
 | 運用データは SQLite 1 ファイル（`var/ops.db`） | デモ・検証用途で十分。読み出し・変更・保存をロックの中で行い、ワーカーと画面操作の競合を防ぐ |
+| 実際の Slack は Socket Mode ＋ 同期 SDK で、投稿の転送としてつなぐ | 127.0.0.1 のままで双方向につながり、仕分けの処理は Slack を知らずに済む（[ADR-0013](adr/0013-slack-socket-mode.md)） |
+| 検知漏れは記録だけ残し、閾値の見直しに使う | 送った本文は取り消せない。個人情報そのものは保存せず、種類・位置・報告時の確率だけ残す |
 
 ---
 
@@ -186,6 +210,7 @@ scripts/serve.sh --mock  # ビルド済みを起動（--mock は API を呼ば�
   - `JEVLAB_VAR_DIR`
   - `JEVLAB_GENERATOR`
   - `JEVLAB_CLAUDE_USE_API_KEY`
+  - `SLACK_BOT_TOKEN`・`SLACK_APP_TOKEN`（実際の Slack とつなぐときだけ）
 
 ### テスト用サーバ（Claude が検証に使う）
 - 利用者のサーバとぶつからないよう、別ポートと別のデータ置き場で起動する。
@@ -204,6 +229,7 @@ uv run ruff check src tests && uv run ruff format --check src tests
 cd frontend && npx tsc -b && npm run lint && npm run build
 ```
 - テストは MOCK で動く（`tests/conftest.py` の `mock_env` が環境変数を差し替え、Kev には接続しない）。
+- `tests/test_web.py` の画面の配信のテストは、画面をビルドした `src/jevlab/static/` を前提にする。ビルドしていない環境（新しく clone した直後など）では 503 で 1 件失敗する。
 
 ### 画面の検証
 - Playwright（playwright MCP）でテスト用サーバを操作して確かめる。
@@ -217,11 +243,12 @@ cd frontend && npx tsc -b && npm run lint && npm run build
 - **評価ダッシュボード:** 8 アプリのライブ評価（単独・比較）、単発判定、評価履歴。
 - **運用ダッシュボード**（手順は [walkthrough.md](walkthrough.md) を参照）
   - 受付箱、個人情報の確認（まとめて処理・下書き保持）、分類の確認（キー操作・絞り込み・抜き取り）
-  - エスカレーション（担当の推定・自動割り当て・まとめて割り当て・対応目安）、チャンネル（疑似 Slack）
-  - 担当者（一覧の編集・当たり具合）、コネクタ（疑似の Gmail/Slack/API、CSV 取り込み）
-  - 閾値の調整、設定、ダッシュボード（流れ図・KPI・受信シミュレータ・経過）
+  - エスカレーション（担当の推定・自動割り当て・まとめて割り当て・営業時間で数える対応目安・ブロックした件への Kev の参考判定）、チャンネル（疑似 Slack）
+  - 担当者（一覧の編集・当たり具合・Slack ID）、コネクタ（疑似のメール／チャット／API、CSV 取り込み、実際の Slack）
+  - 閾値の調整（検知漏れの集計を含む）、設定（ガードの有効・規則だけ、判断が割れた件の扱い、対応目安）、ダッシュボード（流れ図・KPI・受信シミュレータ・経過）
+  - 件の詳細からの検知漏れの報告
 - **ツール:** 言い方チェック（判定・目的の上書き・文ごとの見え方・Claude の書き換え案・書き換え後の再判定と比較）。
-- **テスト:** pytest 133 件すべて成功。型チェック・lint・build にエラーなし。
+- **テスト:** pytest 175 件（画面をビルドしていない環境では、画面の配信の 1 件が 503 で失敗する。5 章を参照）。
 
 ### 実測の記録
 - **Kev の個人情報検出（デモ 60 件）:** 検出 43・見落とし 3・誤検出 0。
@@ -238,22 +265,31 @@ cd frontend && npx tsc -b && npm run lint && npm run build
 
   既定は sonnet。Kev の再判定は結果がぶれるので、数字は目安。
 
+### 実際の Slack の接続（利用者の手元で進行中）
+- [slack-setup.md](slack-setup.md) の手順で進めている。
+  - 済み: 手順 1（マニフェストからアプリ作成）、手順 2（トークンの取得）、アプリのアイコンの設定（`docs/assets/slack-app-icon.png`）、チャンネルの作成、ボットの招待、チャンネル ID の確認。
+  - 次: 手順 4（`.env` にトークン）→ 手順 5（`dev.sh` の再起動）→ 手順 6（コネクタ画面の設定）→ 手順 7（担当者の Slack ID・当番。任意）→ 手順 8（動作の確認）。
+- 作ったチャンネル: 投稿先の #cs-問い合わせ／#cs-クレーム／#cs-お礼／#cs-その他／#cs-エスカレーション と、受信用の #jevlab-お問い合わせ。
+- `.env.example` への `SLACK_BOT_TOKEN=`・`SLACK_APP_TOKEN=` の追加は、利用者が自分で行う（こちらは `.env.example` に触らない）。
+- トークンはチャットに貼らない。チャンネル ID は秘密ではないので、書いてもらって構わない。
+
 ### 残っている小さな課題
-- 「氏名の可能性」という表示名の見直し。実際は「未確定の候補がある」という意味で、氏名に限らない。
-- サーバの入力チェックのエラー（422）が、画面に JSON のまま出ることがある。
 - 以前に公開した「まとめページ」（claude.ai の Artifact）は、最新の機能を反映していない。以後は `docs/` の資料を正とする。
 
 ---
 
 ## 7. やることリスト
 
-### 次にやる（実際の Slack 接続と同じタイミングで着手する）
-- **実際の Slack とのつなぎ込み。** 計画と設定手順を先に出し、利用者の承認を得てから進める。
-  - 127.0.0.1 で動くため、受信は Socket Mode が現実的。投稿は `chat.postMessage` を使う。
-  - トークンは利用者が `.env` に入れる。
-- **個人情報のチェック（Kev）を行う／行わないの ON/OFF を画面に付ける。** Kev（CPU）がボトルネックのため。
-  - 「行わない」を、ガードの完全な無効化（本文をそのまま Jev に送る）にしてよいかは要検討。
-  - 規則だけで検出してマスクする（モデルに聞かない）運用のほうが安全。
+### 次にやる
+- **実際の Slack の接続の伴走。** 実装は済み。利用者の手元での設定を、6 章の「実際の Slack の接続」の続きから 1 段階ずつ案内する。
+- **自動モード（計画前）。** Kev が遅いので、人の確認を減らして自動で振り分けるモードを ON/OFF したい、という利用者の希望。
+  - 個別のスイッチはすでに「運用 → 設定」にある: ガードの「モデルで判定する」（オフで規則だけ）、「検出したら人が確認」、分類の接続先と「Kev で先に判定」、担当の自動割り当て。
+  - ないもの: 分類の確認待ち（判断が割れた件・中間の確信度）を飛ばすスイッチ、全体をまとめて切り替えるモード。
+  - 自動モードでも、ガードは「規則だけで判定」までにとどめる。完全に無効にすると、元の本文が Jev に送られるため。
+  - 進めるときは、先に計画を出して利用者の GO を得てから、ステージングで実装する。
+
+### 済み（以前のやることリストから）
+- 個人情報のチェック（Kev）の ON/OFF: 設定の「モデルで判定する」（オフで規則だけで検出してマスク）と「有効にする」（オフで完全に無効。デモ用）として実装済み。
 
 ### 保留（やれることリスト。区切りごとに根拠付きで次の候補を提案する）
 - ① 根拠の並べ替え（RAG のリランキング。候補文ごとに Noul で関連度を判定）
@@ -284,6 +320,8 @@ cd frontend && npx tsc -b && npm run lint && npm run build
 | 文面の JSON を Playwright の中で扱うとき、`URL`・`Buffer` がない | 正規表現やファイルのパスで代用する |
 | 待機に `sleep` を前面で使うとブロックされる環境がある | バックグラウンド実行や、条件を満たすまで待つループを使う |
 | CJK（日本語）の判定精度は英語より低い（TypeSafe の注意事項） | 質問文は短く、1 問 1 条件にし、候補を選ばせる形にする |
+| クラウドのセッションから GitHub に push すると 403 になることがある | GitHub の接続し直しと、Claude GitHub App のインストールを利用者に頼む。直ったら push し直す |
+| クラウドのセッションは利用者の PC とは別の環境で、利用者のサーバ（8000・5173・8009）には届かない | 画面や Slack の設定は利用者の手元で行ってもらい、手順を案内する |
 
 ---
 

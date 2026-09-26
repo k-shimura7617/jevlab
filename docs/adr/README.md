@@ -18,6 +18,7 @@
 | [0010](0010-server-side-pii-draft.md) | 個人情報の確認の編集は、サーバ側に下書きとして保存する | 採用 |
 | [0011](0011-single-repo-vite-build.md) | 画面は同じリポジトリの Vite ビルドを FastAPI から配信する | 採用 |
 | [0012](0012-staging-copy-during-user-testing.md) | 利用者の動作確認中は、別のコピーで実装して区切りで反映する | 採用 |
+| [0013](0013-slack-socket-mode.md) | 実際の Slack とのつなぎ込みは Socket Mode と同期 SDK で行う | 採用 |
 
 ## 運用のきまり
 
