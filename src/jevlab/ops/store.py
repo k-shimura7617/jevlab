@@ -173,9 +173,10 @@ class Store:
                 subject=req.subject,
                 body=req.body,
                 text=compose_text(req.subject, req.body),
-                received_at=at,
+                received_at=req.received_at if req.backfill and req.received_at else at,
                 updated_at=at,
                 expected=req.expected,
+                backfill=req.backfill,
             )
             db.execute(
                 "INSERT INTO items(id, seq, status, data) VALUES(?, ?, ?, ?)",

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import base64
 import json
 import time
 from collections.abc import Iterator
@@ -237,6 +238,48 @@ def test_off_duty_staff_are_not_suggested_or_assigned(client: TestClient) -> Non
     res = client.post(f"/api/ops/items/{item_id}/assign", json={"assignee": "sato"})
     assert res.status_code == 422 and "オフ" in res.text
     assert client.post(f"/api/ops/items/{item_id}/assign", json={"assignee": "suzuki"}).status_code == 200
+
+
+def test_backfill_import_is_classified_but_not_posted(client: TestClient) -> None:
+    rows = [
+        {
+            "subject": "在庫",
+            "body": "木製のペン立ては再入荷しますか？",
+            "category": "inquiry",
+            "received_at": "2025-01-10T09:00:00+09:00",
+        },
+        {"subject": "返金", "body": "電話は 090-0000-1234 です。返金してください", "category": "complaint"},
+    ]
+    res = client.post(
+        "/api/ops/import", json={"file_name": "過去分.csv", "channel": "mail", "backfill": True, "rows": rows}
+    )
+    assert res.status_code == 200, res.text
+    ids = res.json()["ids"]
+    items = [settle(client, i)["item"] for i in ids]
+    # 人の確認にも投稿にも回さず、振り分けの結果だけ残して完了にする
+    assert all(i["status"] == "closed" and i["backfill"] and i["first_route"] is not None for i in items)
+    assert items[0]["received_at"].startswith("2025-01-10") and items[0]["channel"] == "mail"
+    assert [i["expected"]["category"] for i in items] == ["inquiry", "complaint"]
+    # 電話番号は伏せてから Jev に送る
+    assert "090-0000-1234" not in (items[1]["sent_text"] or "")
+    assert client.get("/api/ops/posts").json() == []
+    # 運用の集計には入れず、試算（過去の分類を正解にした閾値の調整）には入れる
+    assert client.get("/api/ops/overview").json()["flow"]["received"] == 0
+    assert client.get("/api/ops/tuning", params={"source": "expected"}).json()["n"] == 2
+    assert client.get("/api/ops/tuning", params={"source": "human"}).json()["n"] == 0
+
+
+def test_import_rejects_unknown_category(client: TestClient) -> None:
+    rows = [{"body": "本文", "category": "苦情"}]
+    assert client.post("/api/ops/import", json={"rows": rows}).status_code == 422
+
+
+def test_parse_import_file(client: TestClient) -> None:
+    data = base64.b64encode("件名,本文\n在庫,再入荷しますか\n".encode("cp932")).decode()
+    res = client.post("/api/ops/import/parse", json={"file_name": "a.csv", "data": data})
+    assert res.status_code == 200 and res.json()["table"][1] == ["在庫", "再入荷しますか"]
+    bad = client.post("/api/ops/import/parse", json={"file_name": "a.msg", "data": data})
+    assert bad.status_code == 422 and ".eml" in bad.text
 
 
 def test_disconnected_connector_rejects_ingest(client: TestClient) -> None:

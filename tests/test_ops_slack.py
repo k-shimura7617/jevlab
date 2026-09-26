@@ -123,7 +123,7 @@ async def test_mirror_retries_temporary_failures_and_skips_permanent(tmp_path: P
     assert conn.status().outbound.state == "error" and api.sent == []
     api.fail = None
     await conn.tick()  # 同じ投稿からやり直す
-    assert [t for _, t in api.sent] == ["*jevlab*: 一時的に失敗する投稿"]
+    assert [t for _, t in api.sent] == ["*jevlab*\n一時的に失敗する投稿"]
     api.fail = SlackSendError("招待されていない", permanent=True)
     conn.pipeline.store.add_post(ESCALATION_CHANNEL, "jevlab", "設定の誤りで送れない投稿")
     await conn.tick()
@@ -131,7 +131,7 @@ async def test_mirror_retries_temporary_failures_and_skips_permanent(tmp_path: P
     conn.pipeline.store.add_post(ESCALATION_CHANNEL, "jevlab", "次の投稿")
     await conn.tick()
     # 直らない失敗は飛ばして、後の投稿は流れ続ける
-    assert [t for _, t in api.sent][-1] == "*jevlab*: 次の投稿"
+    assert [t for _, t in api.sent][-1] == "*jevlab*\n次の投稿"
     assert "招待されていない" in (conn.status().outbound.last_error or "")
 
 
@@ -341,7 +341,7 @@ async def test_cursor_survives_restart(tmp_path: Path) -> None:
     conn.pipeline.store.add_post(ESCALATION_CHANNEL, "jevlab", "止まっている間の投稿")
     restarted = SlackConnector(conn.pipeline, api, None)
     await restarted.tick()
-    assert [t for _, t in api.sent] == ["*jevlab*: 止まっている間の投稿"]
+    assert [t for _, t in api.sent] == ["*jevlab*\n止まっている間の投稿"]
 
 
 @pytest.mark.anyio

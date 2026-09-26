@@ -67,6 +67,9 @@ def labeled_items(items: Iterable[Item], source: TruthSource) -> list[Labeled]:
             continue
         if source == "expected":
             truth = (item.expected or {}).get("category")
+        elif item.backfill:
+            # 過去の問い合わせは人が確認していない（分類は取り込んだ過去の分類として expected にある）
+            truth = None
         else:
             # 人が確認した件だけを正解として使う（自動で振り分けて誰も見ていない件は含めない）
             human_checked = (

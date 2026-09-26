@@ -80,6 +80,8 @@ export interface Item {
     pii?: { type: PiiType; text: string }[]
     order_id?: string | null
   } | null
+  // 過去の問い合わせとして取り込んだ件（導入前の試算用）
+  backfill: boolean
   updated_at: string
   closed_at: string | null
   priority: Record<string, number>
@@ -301,6 +303,28 @@ export interface ImportRow {
   from_address: string
   subject: string
   body: string
+  // 過去の分類（mail の分類のキー）と元の受信日時。過去の問い合わせ（試算用）で使う
+  category?: string | null
+  received_at?: string | null
+}
+
+export interface MessageRow {
+  from_name: string
+  from_address: string
+  subject: string
+  body: string
+  received_at: string | null
+  source: string
+}
+
+/** 取り込むファイルを読んだ結果（表は列の対応を画面で決める。メール・Slack はメッセージのまま）。 */
+export interface ParsedFile {
+  kind: 'table' | 'messages'
+  channel: 'csv' | 'mail' | 'slack'
+  table: string[][]
+  messages: MessageRow[]
+  skipped: number
+  note: string
 }
 
 
@@ -369,8 +393,9 @@ export const ops = {
   ingest: (body: { channel: Channel; from_name: string; from_address: string; subject: string; body: string }) =>
     call<Item>('POST', '/ingest', body),
   chat: (from_name: string, body: string) => call<Item>('POST', '/chat', { from_name, body }),
-  importRows: (file_name: string, rows: ImportRow[]) =>
-    call<{ imported: number; ids: string[] }>('POST', '/import', { file_name, rows }),
+  importRows: (file_name: string, channel: ParsedFile['channel'], backfill: boolean, rows: ImportRow[]) =>
+    call<{ imported: number; ids: string[] }>('POST', '/import', { file_name, channel, backfill, rows }),
+  parseImport: (file_name: string, data: string) => call<ParsedFile>('POST', '/import/parse', { file_name, data }),
   submitPii: (id: string, spans: Span[], action: 'continue' | 'block') =>
     call<Item>('POST', itemPath(id, 'pii'), { spans, action }),
   savePiiDraft: (id: string, spans: Span[] | null) => call<Item>('PUT', itemPath(id, 'pii/draft'), { spans }),
