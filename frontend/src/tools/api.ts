@@ -111,6 +111,38 @@ export interface ExplainResult {
   reported_cost_usd: number | null
 }
 
+// ---- 返信前チェック ----
+
+export interface ReplyMeta {
+  default_policy: string
+  missing: Record<string, string>
+  max_chars: number
+  models: ClaudeModel[]
+  default_model: ClaudeModel
+}
+
+export interface ReplyCheck {
+  id: string
+  title: string
+  polarity: 'good' | 'bad'
+  value: number
+  badness: number
+  level: Level
+  note: string
+}
+
+export interface ReplyResult {
+  verdict: Verdict
+  verdict_note: string
+  checks: ReplyCheck[]
+  missing: { key: string; label: string; probability: number }[]
+  sent_inquiry: string
+  sent_draft: string
+  model: string
+  latency_ms: number
+  cost_usd: number
+}
+
 async function call<T>(method: 'GET' | 'POST', path: string, payload?: unknown): Promise<T> {
   const res = await fetch(`/api/tools${path}`, {
     method,
@@ -136,6 +168,11 @@ export const tools = {
     flagged_sentences: string[]
     model: ClaudeModel
   }) => call<RewriteResult>('POST', '/tone/rewrite', body),
+  replyMeta: () => call<ReplyMeta>('GET', '/reply/meta'),
+  reply: (target: Mode, body: { inquiry: string; draft: string; policy: string }) =>
+    call<ReplyResult>('POST', `/reply?target=${encodeURIComponent(target)}`, body),
+  replyRewrite: (body: { inquiry: string; draft: string; policy: string; findings: { title: string; detail: string }[]; model: ClaudeModel }) =>
+    call<RewriteResult>('POST', '/reply/rewrite', body),
   contractMeta: () => call<ContractMeta>('GET', '/contract/meta'),
   contract: (target: Mode, text: string) => call<ContractResult>('POST', `/contract?target=${encodeURIComponent(target)}`, { text }),
   explain: (clauses: { index: number; text: string; level: ClauseLevel; flags: string[] }[], model: ClaudeModel) =>

@@ -15,7 +15,7 @@ from jevlab.core.client import judge
 from jevlab.core.engine import answer_views
 from jevlab.core.generator import CLAUDE_MODELS, GenerateRequest, GenerationError, make_generator
 from jevlab.ops.pipeline import BackendLike
-from jevlab.tools import contract, tone
+from jevlab.tools import contract, reply, tone
 
 router = APIRouter(prefix="/api/tools", tags=["tools"])
 # claude -p は重いので同時に走らせる数を絞る（サブスクの枠も守る）
@@ -211,4 +211,88 @@ async def explain_contract(req: contract.ExplainRequest, request: Request) -> co
     ]
     return contract.ExplainResult(
         items=items, model=out.model, latency_ms=out.latency_ms, reported_cost_usd=out.reported_cost_usd
+    )
+
+
+# ---- 返信前チェック ----
+
+
+class ReplyMeta(BaseModel):
+    default_policy: str
+    missing: dict[str, str]
+    max_chars: int
+    models: list[str]
+    default_model: str
+
+
+@router.get("/reply/meta")
+async def reply_meta() -> ReplyMeta:
+    return ReplyMeta(
+        default_policy=reply.DEFAULT_POLICY,
+        missing=dict(reply.MISSING),
+        max_chars=reply.MAX_CHARS,
+        models=list(CLAUDE_MODELS),
+        default_model=DEFAULT_MODEL,
+    )
+
+
+class ReplyRequest(BaseModel):
+    inquiry: reply.Text
+    draft: reply.Text
+    policy: reply.Policy = ""
+
+
+@router.post("/reply")
+async def check_reply(req: ReplyRequest, backend: Annotated[BackendLike, Depends(_backend)]) -> reply.ReplyResult:
+    # 個人情報の候補を伏せてから外部（Jev）に送る
+    inquiry, draft = reply.mask(req.inquiry), reply.mask(req.draft)
+    questions = reply.questions()
+    try:
+        judged = await judge(
+            backend.client,
+            backend.ledger,
+            app=reply.APP_NAME,
+            state=reply.state(inquiry, draft, req.policy),
+            questions=questions,
+        )
+    except BudgetExceededError as e:
+        raise HTTPException(status_code=409, detail=str(e)) from e
+    except TypeSafeError as e:
+        raise HTTPException(status_code=502, detail=f"判定に失敗しました: {type(e).__name__}: {e}") from e
+    try:
+        return reply.build_result(
+            answer_views(questions, judged.response),
+            sent_inquiry=inquiry,
+            sent_draft=draft,
+            model=judged.response.model,
+            latency_ms=judged.latency_ms,
+            cost_usd=judged.cost_usd,
+        )
+    except (KeyError, ValueError) as e:
+        raise HTTPException(status_code=502, detail=f"判定の応答が想定と違います: {type(e).__name__}: {e}") from e
+
+
+@router.post("/reply/rewrite")
+async def rewrite_reply(req: reply.RewriteRequest, request: Request) -> tone.RewriteResult:
+    slots: asyncio.Semaphore = request.app.state.rewrite_slots
+    try:
+        generator = make_generator(req.model)
+        async with slots:
+            out = await generator.generate(
+                GenerateRequest(
+                    system=reply.REWRITE_SYSTEM, prompt=reply.rewrite_prompt(req), schema=tone.REWRITE_SCHEMA
+                )
+            )
+    except GenerationError as e:
+        raise HTTPException(status_code=502, detail=f"直した案を作れませんでした: {e}") from e
+    data = out.structured
+    if data is None or not isinstance(data.get("rewritten"), str) or not data["rewritten"].strip():
+        raise HTTPException(status_code=502, detail=f"直した案の形が想定と違います: {out.text[:200]}")
+    return tone.RewriteResult(
+        rewritten=str(data["rewritten"]).strip(),
+        changes=_strings(data.get("changes")),
+        placeholders=_strings(data.get("placeholders")),
+        model=out.model,
+        latency_ms=out.latency_ms,
+        reported_cost_usd=out.reported_cost_usd,
     )
