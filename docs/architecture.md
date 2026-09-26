@@ -229,6 +229,7 @@ flowchart TD
 | `POST /api/apps/{name}/judge`、`/samples/{id}/judge`、`/evaluate`、`/summary` | 判定・評価 |
 | `GET /api/runs/latest`、`/api/apps/{name}/runs` | 評価の記録 |
 | `GET /api/ops/meta`、`/overview`、`/items`、`/items/{id}` | 運用の定義・集計・件 |
+| `GET /api/ops/progress` | 処理フローの進み具合（受信した件数・処理待ちの件数）。件を読み込まずに数えるだけの軽い API で、処理中は画面が 0.3 秒ごとに読む |
 | `POST /api/ops/ingest`、`/chat`、`/import` | 受信（手入力・チャット・ファイル）。`/import` は過去の分類・受信日時・試算用（`backfill`）を受け付ける |
 | `POST /api/ops/import/parse` | 取り込むファイル（base64）を読み、表かメッセージにして返す |
 | `POST /api/ops/items/{id}/pii`、`PUT /items/{id}/pii/draft` | 個人情報の確定・下書きの保存 |

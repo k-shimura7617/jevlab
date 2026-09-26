@@ -444,6 +444,7 @@ export interface PiiEval {
 
 export const ops = {
   meta: () => call<Meta>('GET', '/meta'),
+  progress: () => call<{ received: number; waiting: number }>('GET', '/progress'),
   overview: () => call<Overview>('GET', '/overview'),
   items: (statuses?: Status[]) =>
     call<Item[]>('GET', `/items${statuses?.length ? `?${statuses.map((s) => `status=${s}`).join('&')}` : ''}`),
