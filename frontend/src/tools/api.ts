@@ -1,4 +1,4 @@
-// ツール（言い方チェック）の API（src/jevlab/tools/api.py）
+// ツール（言い方チェック・契約・規約チェック）の API（src/jevlab/tools/api.py）
 import { ApiError, detailOf, type Mode } from '../api'
 
 // none は「指定なし」（一般的なビジネスの相手・場面として判定する）
@@ -64,6 +64,53 @@ export interface RewriteResult {
 }
 
 
+// ---- 契約・規約チェック ----
+
+export type ClauseLevel = 'low' | 'mid' | 'high'
+
+export interface ContractMeta {
+  flags: Record<string, string>
+  risks: Record<string, string>
+  max_clauses: number
+  max_chars: number
+  disclaimer: string
+  models: ClaudeModel[]
+  default_model: ClaudeModel
+}
+
+export interface ClauseResult {
+  index: number
+  text: string
+  level: ClauseLevel
+  risk: number
+  risk_probs: Record<string, number>
+  flags: string[]
+  flag_probs: Record<string, number>
+}
+
+export interface ContractResult {
+  clauses: ClauseResult[]
+  truncated: boolean
+  counts: Record<ClauseLevel, number>
+  model: string
+  latency_ms: number
+  cost_usd: number
+  disclaimer: string
+}
+
+export interface Explanation {
+  index: number
+  summary: string
+  ask: string[]
+}
+
+export interface ExplainResult {
+  items: Explanation[]
+  model: string
+  latency_ms: number
+  reported_cost_usd: number | null
+}
+
 async function call<T>(method: 'GET' | 'POST', path: string, payload?: unknown): Promise<T> {
   const res = await fetch(`/api/tools${path}`, {
     method,
@@ -89,4 +136,8 @@ export const tools = {
     flagged_sentences: string[]
     model: ClaudeModel
   }) => call<RewriteResult>('POST', '/tone/rewrite', body),
+  contractMeta: () => call<ContractMeta>('GET', '/contract/meta'),
+  contract: (target: Mode, text: string) => call<ContractResult>('POST', `/contract?target=${encodeURIComponent(target)}`, { text }),
+  explain: (clauses: { index: number; text: string; level: ClauseLevel; flags: string[] }[], model: ClaudeModel) =>
+    call<ExplainResult>('POST', '/contract/explain', { clauses, model }),
 }

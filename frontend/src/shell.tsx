@@ -346,6 +346,9 @@ function Sidebar() {
         <NavLink to="/tools/tone" className={navCls}>
           言い方チェック
         </NavLink>
+        <NavLink to="/tools/contract" className={navCls}>
+          契約・規約チェック
+        </NavLink>
       </NavGroup>
       {appsError && <div className="error small">{appsError}</div>}
     </aside>

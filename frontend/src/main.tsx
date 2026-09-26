@@ -18,6 +18,7 @@ import { Staff } from './ops/pages/Staff'
 import { Tuning } from './ops/pages/Tuning'
 import { OpsProvider } from './ops/state'
 import { Page, ShellProvider } from './shell'
+import { ContractPage } from './tools/ContractPage'
 import { TonePage } from './tools/TonePage'
 import './styles.css'
 import './ops/ops.css'
@@ -92,6 +93,7 @@ const router = createBrowserRouter([
           { path: '/ops/tuning', element: <Tuning /> },
           { path: '/ops/staff', element: <Staff /> },
           { path: '/tools/tone', element: <TonePage /> },
+          { path: '/tools/contract', element: <ContractPage /> },
           { path: '/ops/items/:id', element: <ItemPage /> },
           { path: '*', element: <NotFound /> },
         ],
