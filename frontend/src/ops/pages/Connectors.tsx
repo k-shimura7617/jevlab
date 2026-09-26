@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { useNavigate } from 'react-router'
 import { errorMessage } from '../../api'
 import { Page, useTitle } from '../../shell'
@@ -95,13 +95,30 @@ const slackInvalid = (d: Settings): string | null => {
 /** 投稿先のチャンネルから jevlab の投稿を消す（デモで流しすぎたとき用）。 */
 function SlackPurge({ purge, onStarted }: { purge: SlackStatus['purge']; onStarted: () => void }) {
   const [error, setError] = useState<string | null>(null)
+  // この画面で始めた削除が終わったら、ポップアップで知らせる（重大な操作なので見落とさないように）。
+  // 始める前の終了時刻を控え、それと違う終了時刻が来たら「今回の削除が終わった」とみなす
+  const watching = useRef<{ before: string | null } | null>(null)
+  useEffect(() => {
+    const w = watching.current
+    if (!w || purge.running || !purge.finished_at || purge.finished_at === w.before) return
+    watching.current = null
+    window.alert(
+      purge.error
+        ? `Slack の投稿の削除が途中で止まりました（${purge.deleted} 件を削除）。\n${purge.error}`
+        : `Slack の投稿の削除が終わりました。\n${purge.deleted} 件を削除${purge.skipped > 0 ? `、消せない ${purge.skipped} 件は残しました` : ''}。`,
+    )
+  }, [purge])
   const start = () => {
     if (!window.confirm('Slack の投稿先チャンネルから、jevlab の投稿（スレッドの返信を含む）をすべて削除します。本当に削除しますか？')) return
     setError(null)
+    watching.current = { before: purge.finished_at }
     ops
       .slackPurge()
       .then(onStarted)
-      .catch((e: unknown) => setError(errorMessage(e)))
+      .catch((e: unknown) => {
+        watching.current = null
+        setError(errorMessage(e))
+      })
   }
   return (
     <div className="row">
