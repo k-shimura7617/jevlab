@@ -49,7 +49,7 @@ function Handling({ item, onDone }: { item: Item; onDone: () => void }) {
       {item.kev_reference && (
         <div className="suggest reference" data-testid="kev-reference">
           <span>
-            参考（{settings?.guard.target === 'mock' ? 'MOCK' : 'Kev'}）: 分類 <strong>{meta?.categories[item.kev_reference.category ?? ''] ?? '-'}</strong>
+            参考（{settings?.guard.target === 'mock' ? 'MOCK' : 'Kev'}）: 分類 <strong>{meta?.category_labels[item.kev_reference.category ?? ''] ?? '-'}</strong>
             {' / '}担当の推定 <strong>{item.kev_reference.assign_suggestion ? staffName(settings?.staff, item.kev_reference.assign_suggestion) : 'なし'}</strong>
           </span>
         </div>

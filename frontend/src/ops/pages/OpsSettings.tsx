@@ -3,7 +3,7 @@ import { Link } from 'react-router'
 import { type Mode } from '../../api'
 import { pct } from '../../format'
 import { Page, targetStatus, useShell, useTitle } from '../../shell'
-import type { PiiAction, PiiType, Settings } from '../api'
+import type { CategoryDef, PiiAction, PiiType, Settings } from '../api'
 import { useAutoSave } from '../autosave'
 import { SaveState, WeightSliders } from '../components'
 import { ACTION_LABELS, ACTION_NOTES } from '../format'
@@ -67,7 +67,7 @@ function TargetSelect<T extends Mode>({
 }
 
 // この画面で編集する項目（ほかの画面の項目は、保存のときに最新の値を使う）
-const KEYS = ['guard', 'classify', 'kev_first', 'audit_rate', 'sla', 'priority_weights'] as const
+const KEYS = ['categories', 'fallback_category', 'guard', 'classify', 'kev_first', 'audit_rate', 'sla', 'priority_weights'] as const
 const settingsChanged = (d: Settings, s: Settings) => KEYS.some((k) => JSON.stringify(d[k]) !== JSON.stringify(s[k]))
 const mergeSettings = (latest: Settings, d: Settings): Settings => ({ ...latest, ...Object.fromEntries(KEYS.map((k) => [k, d[k]])) })
 
@@ -83,8 +83,24 @@ function slaInvalid(sla: Settings['sla']): string | null {
           : null
 }
 
+const MAX_ACTIVE = 9
+
+function categoriesInvalid(d: Settings): string | null {
+  const active = d.categories.filter((x) => x.active)
+  const bad = d.categories.find((x) => !x.label.trim() || !x.criteria.trim() || !/^#\S+$/.test(x.channel))
+  return bad
+    ? `分類「${bad.label || bad.key}」: 表示名・説明を入れ、チャンネルは #名前 の形にしてください`
+    : active.length === 0
+      ? '使う分類を 1 つ以上にしてください'
+      : active.length > MAX_ACTIVE
+        ? `使う分類は ${MAX_ACTIVE} 個までです`
+        : !active.some((x) => x.key === d.fallback_category)
+          ? '受け皿の分類は「使う」にしてください'
+          : null
+}
+
 const settingsInvalid = (d: Settings): string | null =>
-  d.classify.review_threshold > d.classify.auto_threshold ? '確認待ちの閾値が自動の閾値を超えています' : slaInvalid(d.sla)
+  categoriesInvalid(d) ?? (d.classify.review_threshold > d.classify.auto_threshold ? '確認待ちの閾値が自動の閾値を超えています' : slaInvalid(d.sla))
 
 export function OpsSettings() {
   useTitle('運用の設定')
@@ -99,6 +115,9 @@ export function OpsSettings() {
   const c = draft.classify
   const sla = draft.sla
   const slaError = slaInvalid(sla)
+  const catError = categoriesInvalid(draft)
+  const setCat = (key: string, patch: Partial<CategoryDef>) =>
+    set((s) => ({ ...s, categories: s.categories.map((x) => (x.key === key ? { ...x, ...patch } : x)) }))
   const labels: Record<string, string> = meta?.pii_types ?? {}
   const warn = (t: Mode) => {
     const ts = targetStatus(status, t)
@@ -222,7 +241,7 @@ export function OpsSettings() {
           <ul className="label-thresholds">
             {Object.entries(c.label_thresholds).map(([k, v]) => (
               <li key={k}>
-                {meta?.categories[k] ?? k}: <strong>{v.toFixed(2)}</strong>{' '}
+                {meta?.category_labels[k] ?? k}: <strong>{v.toFixed(2)}</strong>{' '}
                 <button
                   type="button"
                   className="link-btn"
@@ -249,6 +268,83 @@ export function OpsSettings() {
           <input type="checkbox" checked={c.insufficient_gate} onChange={(e) => set((s) => ({ ...s, classify: { ...s.classify, insufficient_gate: e.target.checked } }))} /> 判断材料が足りない件は人が確認
         </label>
         <Threshold label="足りないとみなす確率" value={c.insufficient_at} onChange={(v) => set((s) => ({ ...s, classify: { ...s.classify, insufficient_at: v } }))} note="これ以上なら自動にしない" />
+      </Section>
+
+      <Section id="categories" title="分類とチャンネル" desc="説明は Jev が読む。使った分類は削除できないので「使う」を外す">
+        <div className="scroll">
+          <table className="category-table" data-testid="category-table">
+            <thead>
+              <tr>
+                <th>表示名</th>
+                <th>説明（Jev が読む）</th>
+                <th>チャンネル</th>
+                <th>使う</th>
+                <th>受け皿</th>
+                <th />
+              </tr>
+            </thead>
+            <tbody>
+              {draft.categories.map((x) => (
+                <tr key={x.key} className={x.active ? undefined : 'muted'}>
+                  <td>
+                    <input aria-label={`${x.label}の表示名`} value={x.label} maxLength={20} onChange={(e) => setCat(x.key, { label: e.target.value })} />
+                  </td>
+                  <td>
+                    <textarea aria-label={`${x.label}の説明`} rows={2} value={x.criteria} maxLength={300} onChange={(e) => setCat(x.key, { criteria: e.target.value })} />
+                  </td>
+                  <td>
+                    <input aria-label={`${x.label}のチャンネル`} value={x.channel} maxLength={40} onChange={(e) => setCat(x.key, { channel: e.target.value })} />
+                  </td>
+                  <td>
+                    <input
+                      type="checkbox"
+                      aria-label={`${x.label}を使う`}
+                      checked={x.active}
+                      disabled={x.key === draft.fallback_category}
+                      onChange={(e) => setCat(x.key, { active: e.target.checked })}
+                    />
+                  </td>
+                  <td>
+                    <input
+                      type="radio"
+                      name="fallback"
+                      aria-label={`${x.label}を受け皿にする`}
+                      checked={x.key === draft.fallback_category}
+                      disabled={!x.active}
+                      onChange={() => set((s) => ({ ...s, fallback_category: x.key }))}
+                    />
+                  </td>
+                  <td>
+                    {x.key !== draft.fallback_category && (
+                      <button
+                        type="button"
+                        className="link-btn"
+                        onClick={() => {
+                          if (!window.confirm(`分類「${x.label}」を削除しますか？`)) return
+                          set((s) => ({ ...s, categories: s.categories.filter((y) => y.key !== x.key) }))
+                          void auto.commit()
+                        }}
+                      >
+                        削除
+                      </button>
+                    )}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+        <button
+          type="button"
+          disabled={draft.categories.filter((x) => x.active).length >= MAX_ACTIVE}
+          onClick={() =>
+            set((s) => ({ ...s, categories: [...s.categories, { key: `cat-${Date.now().toString(36)}`, label: '', criteria: '', channel: '#', active: true }] }))
+          }
+        >
+          ＋ 分類を追加
+        </button>
+        {catError && <div className="error small">{catError}</div>}
+        <p className="note">説明を変えると、閾値の調整は変えた後の件だけで数えます</p>
       </Section>
 
       <Section id="kev-first" title="Kev で先に判定" desc="十分な確信度なら Jev を呼ばない">

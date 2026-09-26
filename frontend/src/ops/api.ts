@@ -168,7 +168,10 @@ export interface Post {
 }
 
 export interface Meta {
+  // 使っている分類（キー → 表示名。並び順どおり）
   categories: Record<string, string>
+  // 廃止した分類も含む表示名（過去の件の表示に使う）
+  category_labels: Record<string, string>
   statuses: Status[]
   channels: Record<Channel, string>
   pii_types: Record<PiiType, string>
@@ -272,7 +275,20 @@ export interface SlackStatus {
   purge: { running: boolean; deleted: number; total: number; error: string | null; finished_at: string | null }
 }
 
+export interface CategoryDef {
+  key: string
+  label: string
+  // Jev が読む説明
+  criteria: string
+  // 振り分け先の疑似チャンネル（#…）
+  channel: string
+  active: boolean
+}
+
 export interface Settings {
+  categories: CategoryDef[]
+  // どれにも当てはまらないときの受け皿の分類
+  fallback_category: string
   guard: {
     enabled: boolean
     // Kev（モデル）で判定するか。false なら規則だけ（氏名の候補はすべて個人情報として扱う）
@@ -460,6 +476,6 @@ export const ops = {
   scopeDraft: (staffId: string) =>
     call<ScopeDraft>('POST', `/staff/${encodeURIComponent(staffId)}/scope-draft`, {}),
   auditExports: () => call<AuditExport[]>('GET', '/audit/exports'),
-  tuning: (source: 'human' | 'expected', targetError: number) =>
-    call<TuningReport>('GET', `/tuning?source=${source}&target_error=${targetError}`),
+  tuning: (source: 'human' | 'expected', targetError: number, allVersions = false) =>
+    call<TuningReport>('GET', `/tuning?source=${source}&target_error=${targetError}${allVersions ? '&all_versions=true' : ''}`),
 }

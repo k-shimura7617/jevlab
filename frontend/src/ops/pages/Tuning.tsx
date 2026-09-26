@@ -172,13 +172,15 @@ export function Tuning() {
   const { settings, meta, saveSettings } = useOps()
   const [source, setSource] = useState<'human' | 'expected'>('human')
   const [target, setTarget] = useState(0.05)
+  // 分類の定義（説明）を変える前の件は、既定では数えない
+  const [allVersions, setAllVersions] = useState(false)
   // 変更した直後のカード（その中に「変更しました」を出す）と、失敗したカードのエラー
   const [done, setDone] = useState<string | null>(null)
   const [failed, setFailed] = useState<{ key: string; message: string } | null>(null)
   const [busy, setBusy] = useState<string | null>(null)
-  const report = usePolling(() => ops.tuning(source, target), 5000)
+  const report = usePolling(() => ops.tuning(source, target, allVersions), 5000)
   const { reload } = report
-  useEffect(() => reload(), [source, target, reload])
+  useEffect(() => reload(), [source, target, allVersions, reload])
   const r = report.data && report.data.source === source && report.data.target_error === target ? report.data : null
   const current = settings?.classify.auto_threshold ?? 0.9
   const review = settings?.classify.review_threshold ?? 0.5
@@ -236,6 +238,9 @@ export function Tuning() {
               </option>
             ))}
           </select>
+          <label className="small">
+            <input type="checkbox" checked={allVersions} onChange={(e) => setAllVersions(e.target.checked)} /> 定義を変える前の件も含める
+          </label>
           <span className="muted small">いまの共通の閾値 {current.toFixed(2)}</span>
         </div>
         <p className="note">
@@ -281,7 +286,7 @@ export function Tuning() {
                 return (
                   <div key={label} className="curve-card" data-testid={`curve-${label}`}>
                     <h3>
-                      {meta?.categories[label] ?? label}（{c.n} 件）
+                      {meta?.category_labels[label] ?? label}（{c.n} 件）
                     </h3>
                     <CurveChart curve={c} targetError={target} current={now} />
                     <p className="small">{c.note}</p>

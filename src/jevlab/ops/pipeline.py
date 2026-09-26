@@ -16,7 +16,6 @@ from typing import Final, Literal, Protocol
 
 from typesafe_sdk import AsyncTypeSafeClient, TypeSafeAPIConnectionError, TypeSafeAPITimeoutError
 
-from jevlab.apps.mail.questions import CATEGORY_LABELS
 from jevlab.core import target
 from jevlab.core.budget import Ledger
 from jevlab.core.client import judge
@@ -50,13 +49,6 @@ from jevlab.ops.store import Store, now_iso
 
 log = logging.getLogger(__name__)
 
-# 自動で振り分けた件・人が確認した件の投稿先（疑似 Slack）
-ROUTE_CHANNELS: Final[dict[str, str]] = {
-    "inquiry": "#cs-問い合わせ",
-    "complaint": "#cs-クレーム",
-    "thanks": "#cs-お礼",
-    "other": "#cs-その他",
-}
 ESCALATION_CHANNEL: Final = "#cs-エスカレーション"
 INBOUND_CHANNEL: Final = "#お問い合わせ窓口"
 # Kev は CPU で動くため 1 本ずつ、Jev は並列にしてもコストは同じ
@@ -106,8 +98,9 @@ def decider_of(t: target.Target) -> Decider:
 TARGET_NAMES: Final[dict[target.Target, str]] = {"custom": "Kev", "jev": "Jev", "mock": "MOCK"}
 
 
-def category_label(key: str | None) -> str:
-    return CATEGORY_LABELS.get(key or "", key or "-")
+def category_label(key: str | None, settings: Settings) -> str:
+    """分類の表示名（分類は設定で編集できる）。"""
+    return settings.category_label(key)
 
 
 # 担当者の推定に対応例として使ってよい件（個人情報の確認を通り、Jev に送ってよいと判断済み）
@@ -451,7 +444,7 @@ class Pipeline:
             self.store.add_event(item.id, "classify", "system", "参考の判定はしません（Kev で判定しない設定）")
             return
         text = item.text
-        questions = oq.classify_questions(oq.field_candidates(text))
+        questions = oq.classify_questions(oq.field_candidates(text), settings.active_categories())
         assignee_q = oq.assignee_question(settings.on_duty(), self._assign_examples(settings))
         if assignee_q is not None:
             questions = {**questions, oq.ASSIGNEE_ID: assignee_q}
@@ -482,7 +475,7 @@ class Pipeline:
             item.id,
             "classify",
             actor_of(g.target),
-            f"参考（{TARGET_NAMES[g.target]}）: {category_label(ref.category)}（{ref.confidence or 0:.2f}）／ 担当の推定: "
+            f"参考（{TARGET_NAMES[g.target]}）: {category_label(ref.category, settings)}（{ref.confidence or 0:.2f}）／ 担当の推定: "
             f"{self.staff_name(suggestion, settings) if suggestion else 'なし'}。自動では振り分けません",
             {"latency_ms": round(latency, 1)},
         )
@@ -495,7 +488,7 @@ class Pipeline:
         body = text if text is not None else item.sent_text or ""
         candidates = oq.field_candidates(body)
         state = oq.classify_state(body)
-        questions = oq.classify_questions(candidates)
+        questions = oq.classify_questions(candidates, settings.active_categories())
         # 担当者の推定も同じ問い合わせで聞いておく（エスカレーションになったときだけ使う）
         assignee_q = oq.assignee_question(settings.on_duty(), self._assign_examples(settings))
         if assignee_q is not None:
@@ -515,7 +508,7 @@ class Pipeline:
                     item.id,
                     "classify",
                     "kev",
-                    f"Kev で確定: {category_label(str(views['category'].prediction))}（{conf:.2f} ≥ {kf.threshold:.2f}）。{TARGET_NAMES[chosen]} は呼びません",
+                    f"Kev で確定: {category_label(str(views['category'].prediction), settings)}（{conf:.2f} ≥ {kf.threshold:.2f}）。{TARGET_NAMES[chosen]} は呼びません",
                     {"latency_ms": round(latency, 1)},
                 )
             else:
@@ -540,7 +533,7 @@ class Pipeline:
             item.id,
             "classify",
             actor_of(decided),
-            f"{TARGET_NAMES[decided]} が仕分け: {category_label(category)}（確信度 {views['category'].confidence or 0:.2f}）"
+            f"{TARGET_NAMES[decided]} が仕分け: {category_label(category, settings)}（確信度 {views['category'].confidence or 0:.2f}）"
             + "".join(f" ／ {oq.FIELD_TITLES[k]} {v}" for k, v in fields.items() if v),
             {"model": model, "latency_ms": round(latency, 1), "candidates": candidates},
         )
@@ -550,6 +543,7 @@ class Pipeline:
                 update={
                     "answers": views,
                     "category": category,
+                    "category_version": settings.categories_version(),
                     "confidence": views["category"].confidence,
                     "decided_by": decider_of(decided),
                     "fields": fields,
@@ -588,7 +582,7 @@ class Pipeline:
                     item.id,
                     "route",
                     "system",
-                    f"自動で {ROUTE_CHANNELS.get(item.category or '', '#cs-その他')} へ（{reason}）",
+                    f"自動で {settings.route_channel(item.category)} へ（{reason}）",
                 )
                 self._post_routed(item, by="jevlab（自動）")
                 if audit:
@@ -603,7 +597,7 @@ class Pipeline:
                 self.store.add_post(
                     ESCALATION_CHANNEL,
                     "jevlab",
-                    f"{item.id}「{safe_title(item)}」\n分類: {category_label(item.category)}\n理由: {reason}",
+                    f"{item.id}「{safe_title(item)}」\n分類: {category_label(item.category, settings)}\n理由: {reason}",
                     item.id,
                     item.fields,
                 )
@@ -702,7 +696,7 @@ class Pipeline:
             )
 
     def _post_routed(self, item: Item, *, by: str) -> None:
-        channel = ROUTE_CHANNELS.get(item.category or "", "#cs-その他")
+        channel = self.store.settings().route_channel(item.category)
         # 差出人の名前は個人情報なので投稿に載せない（受付箱の詳細で確認する）
         self.store.add_post(channel, by, f"{item.id}「{safe_title(item)}」", item.id, item.fields)
 
@@ -785,8 +779,10 @@ class Pipeline:
 
     def decide(self, item_id: str, category: str, *, note: str | None = None) -> Item:
         """確認待ち・抜き取りの件を人が確定する。"""
-        if category not in CATEGORY_LABELS:
-            raise ValueError(f"分類 {category!r} は不明です（{' / '.join(CATEGORY_LABELS)}）")
+        settings = self.store.settings()
+        active = [c.key for c in settings.active_categories()]
+        if category not in active:
+            raise ValueError(f"分類 {category!r} は使えません（{' / '.join(active)}）")
         item = self.store.get(item_id)
         if item.status == "routed" and not (item.audit and item.audit_result is None):
             raise ValueError(f"{item_id} は振り分け済みで、抜き取り確認の対象でもありません")
@@ -808,9 +804,9 @@ class Pipeline:
             ),
         )
         verb = (
-            f"{category_label(item.category)} → {category_label(category)} に修正"
+            f"{category_label(item.category, settings)} → {category_label(category, settings)} に修正"
             if fixed
-            else f"{category_label(category)} で承認"
+            else f"{category_label(category, settings)} で承認"
         )
         kind = "audit" if item.audit and item.status == "routed" else "review"
         self.store.add_event(item_id, kind, "human", f"人が確認: {verb}", {"before": item.category, "after": category})
@@ -860,6 +856,9 @@ class Pipeline:
         item = self.store.get(item_id)
         if item.status not in ("escalated", "routed"):
             raise ValueError(f"{item_id} はエスカレーション中でも振り分け済みでもありません（状態: {item.status}）")
+        settings = self.store.settings()
+        if category is not None and category not in {c.key for c in settings.active_categories()}:
+            raise ValueError(f"分類 {category!r} は使えません")
         final = category or item.category
         fixed = final is not None and final != item.category
         # 抜き取り確認を待っている件は、完了の判断を抜き取りの結果にもする
@@ -880,22 +879,22 @@ class Pipeline:
         # 分類のチャンネルには元の投稿がないため、完了だけ届いても何の件か分からず、通知が増えるだけになる。
         # 振り分け済みの件は、そのチャンネルに投稿済みなので、分類を直したときだけ新しいチャンネルに投稿する
         if item.status == "escalated" or fixed:
-            channel = (
-                ESCALATION_CHANNEL if item.status == "escalated" else ROUTE_CHANNELS.get(final or "", "#cs-その他")
-            )
+            channel = ESCALATION_CHANNEL if item.status == "escalated" else settings.route_channel(final)
             lines = [f"{item_id}「{safe_title(updated)}」", "対応完了"]
             if updated.assignee:
                 lines.append(f"担当: {self.staff_name(updated.assignee)}")
             if fixed:
-                lines.append(f"分類を {category_label(item.category)} から {category_label(final)} に修正")
+                lines.append(
+                    f"分類を {category_label(item.category, settings)} から {category_label(final, settings)} に修正"
+                )
             lines.extend(notes_lines(updated))
             self.store.add_post(channel, CLOSE_AUTHOR, "\n".join(lines), item_id, updated.fields)
         self.store.add_event(
             item_id,
             "close",
             "human",
-            f"対応完了（{category_label(final)}）"
-            + (f"。分類を {category_label(item.category)} から修正" if fixed and item.category else ""),
+            f"対応完了（{category_label(final, settings)}）"
+            + (f"。分類を {category_label(item.category, settings)} から修正" if fixed and item.category else ""),
             {
                 "before": item.category,
                 "after": final,
