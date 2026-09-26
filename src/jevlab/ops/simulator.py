@@ -51,8 +51,16 @@ def ingest_next(pipeline: Pipeline) -> bool:
         )
         return False
     req = inbox[cursor]
+    # 最後の 1 件を受信したら、その場で止める（次の周期を待たずに「受信中」を消す）
+    last = cursor + 1 >= len(inbox)
     store.update_settings(
-        lambda s: s.model_copy(update={"simulator": s.simulator.model_copy(update={"cursor": cursor + 1})})
+        lambda s: s.model_copy(
+            update={
+                "simulator": s.simulator.model_copy(
+                    update={"cursor": cursor + 1, **({"playing": False} if last else {})}
+                )
+            }
+        )
     )
     try:
         pipeline.ingest(req, via=_VIA.get(req.channel))

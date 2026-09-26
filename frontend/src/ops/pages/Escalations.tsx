@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from 'react'
-import { Link, useSearchParams } from 'react-router'
+import { useSearchParams } from 'react-router'
 import { errorMessage } from '../../api'
 import { Page, useTitle } from '../../shell'
 import { ops, type Item } from '../api'
@@ -124,15 +124,6 @@ function Handling({ item, onDone }: { item: Item; onDone: () => void }) {
         <button type="button" disabled={busy || !category} onClick={() => run(() => ops.close(item.id, category || null))}>
           対応完了にする
         </button>
-        {item.sent_text !== null ? (
-          <Link className="btn secondary" to={`/tools/reply?item=${encodeURIComponent(item.id)}`}>
-            返信を下書き
-          </Link>
-        ) : (
-          <span className="muted small" title="個人情報のため Jev に送っていない件">
-            返信前チェックは使えません（Jev に送っていない件）
-          </span>
-        )}
         {!category && <span className="muted small">最終の分類を選ぶと完了にできます</span>}
       </div>
       {error && <div className="error small">{error}</div>}

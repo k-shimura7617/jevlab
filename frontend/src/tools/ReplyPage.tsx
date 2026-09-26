@@ -189,7 +189,7 @@ export function ReplyPage() {
         <span className="muted small">
           {itemId && (
             <>
-              <Link to={`/ops/escalations?id=${encodeURIComponent(itemId)}`}>{itemId}</Link> から ／{' '}
+              <Link to={`/ops/items/${encodeURIComponent(itemId)}`}>{itemId}</Link> から ／{' '}
             </>
           )}
           {target ? TARGET_SHORT[target] : '接続先'}・個人情報の候補は伏せて送ります
