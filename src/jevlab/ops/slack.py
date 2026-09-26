@@ -30,7 +30,7 @@ from typing import Final, Literal, Protocol, TypeVar
 from pydantic import BaseModel
 
 from jevlab.ops.models import Event, IngestRequest, Item, Post, Settings, StaffMember
-from jevlab.ops.pipeline import ESCALATION_CHANNEL, ROUTE_CHANNELS, Pipeline, category_label
+from jevlab.ops.pipeline import CLOSE_AUTHOR, ESCALATION_CHANNEL, ROUTE_CHANNELS, Pipeline, category_label, notes_lines
 from jevlab.ops.questions import FIELD_TITLES
 from jevlab.ops.sla import minutes_left
 from jevlab.ops.store import ItemNotFoundError
@@ -426,8 +426,17 @@ class SlackConnector:
             return
         for post in store.posts_after(cursor):
             target = settings.slack.channel_map.get(post.channel)
+            item = self._item(post.item_id) if target and post.channel in MIRRORABLE else None
+            if (
+                item is not None
+                and post.author == CLOSE_AUTHOR
+                and post.channel == ESCALATION_CHANNEL
+                and item.slack_ts
+            ):
+                # エスカレーションの完了は、元の投稿のスレッドへの返信（_follow）で知らせるので流さない
+                store.put_meta(_POST_CURSOR, str(post.id))
+                continue
             if target and post.channel in MIRRORABLE:
-                item = self._item(post.item_id)
                 try:
                     if post.channel == ESCALATION_CHANNEL and item is not None:
                         await self._escalation(post, item, target, settings)
@@ -506,6 +515,8 @@ class SlackConnector:
         for event in store.events_after(cursor):
             text = self._follow_text(event, settings)
             item = self._item(event.item_id) if text is not None else None
+            if text is not None and item is not None and event.kind == "close":
+                text = "\n".join([text, *notes_lines(item)])
             if text is not None and item is not None and item.slack_ts and item.slack_channel:
                 try:
                     await self._send(item.slack_channel, text, item.slack_ts)
