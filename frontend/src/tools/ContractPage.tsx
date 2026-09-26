@@ -146,9 +146,10 @@ export function ContractPage() {
           />
           <div className="row">
             <span className="muted small">第N条・番号・空行で条項に分けます（{meta?.max_clauses ?? 20} 条まで）</span>
-            <span className="spacer" />
-            <button type="button" disabled={busy || !text.trim() || !target} onClick={check}>
-              {busy ? '判定中…' : '判定する（Ctrl+Enter）'}
+          </div>
+          <div className="row judge-row">
+            <button type="button" className="judge-btn" title="Ctrl+Enter" disabled={busy || !text.trim() || !target} onClick={check}>
+              {busy ? '判定中…' : '判定する'}
             </button>
           </div>
           {error && (

@@ -210,6 +210,29 @@ function StatusLine() {
 const navCls = ({ isActive }: { isActive: boolean }) => (isActive ? 'active' : undefined)
 
 /** 左ペインの 1 まとまり。見出し（ダッシュボード）だけを常に出し、個別の画面は一段下げて折りたためるようにする。 */
+const NAV_OPEN_KEY = 'jevlab.navOpen'
+
+/** サイドバーのまとまりの開閉（id → 開いているか）。読めないときは空（既定の開き方にする）。 */
+function loadNavOpen(): Record<string, boolean> {
+  try {
+    const raw: unknown = JSON.parse(localStorage.getItem(NAV_OPEN_KEY) ?? '{}')
+    return typeof raw === 'object' && raw !== null
+      ? Object.fromEntries(Object.entries(raw).filter((e): e is [string, boolean] => typeof e[1] === 'boolean'))
+      : {}
+  } catch {
+    return {}
+  }
+}
+
+function saveNavOpen(id: string, open: boolean) {
+  try {
+    localStorage.setItem(NAV_OPEN_KEY, JSON.stringify({ ...loadNavOpen(), [id]: open }))
+  } catch (e: unknown) {
+    // 保存できなくても開閉はできる（次に画面を開いたときに既定へ戻るだけ）
+    console.warn('サイドバーの開閉を保存できませんでした', e)
+  }
+}
+
 function NavGroup({
   id,
   title,
@@ -229,8 +252,16 @@ function NavGroup({
   extra?: ReactNode
   children: ReactNode
 }) {
-  const [toggled, setToggled] = useState<boolean | null>(null)
-  const open = toggled ?? inside
+  // 一度開いたまとまりは、ほかの画面に移っても開いたままにする（閉じるのは見出しの ▾ を押したときだけ）。
+  // 画面を移っても保つため、ブラウザに覚えておく
+  const [pref, setPref] = useState<boolean | null>(() => loadNavOpen()[id] ?? null)
+  // 今いる画面のまとまりは開いた扱いにする（描画中に一度だけ状態を合わせる。React の「前の値から状態を調整する」形）
+  if (inside && pref === null) setPref(true)
+  const open = pref ?? inside
+  useEffect(() => {
+    if (pref !== null) saveNavOpen(id, pref)
+  }, [pref, id])
+  const setToggled = (next: boolean) => setPref(next)
   return (
     <div className={`nav-group${open ? ' open' : ''}`}>
       <div className="nav-head">

@@ -446,8 +446,10 @@ export function TonePage() {
             </div>
             <span className="spacer" />
             <span className="muted small">{text.length} / 2000</span>
-            <button type="button" disabled={busy || !text.trim() || !target} onClick={check}>
-              {busy ? '判定中…' : '判定する（Ctrl+Enter）'}
+          </div>
+          <div className="row judge-row">
+            <button type="button" className="judge-btn" title="Ctrl+Enter" disabled={busy || !text.trim() || !target} onClick={check}>
+              {busy ? '判定中…' : '判定する'}
             </button>
           </div>
           {error && (

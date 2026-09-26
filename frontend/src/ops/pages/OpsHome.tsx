@@ -96,7 +96,7 @@ function SimulatorPanel() {
             )
           }
         >
-          <option value="fast">なし（高速・並列 {sim.fast_workers}）</option>
+          <option value="fast">高速（並列 {sim.fast_workers}）</option>
           {[...new Set([0.5, 1, 2, 4, 8, 15, sim.interval_s])].sort((a, b) => a - b).map((s) => (
             <option key={s} value={s}>
               {s} 秒ごと
@@ -108,6 +108,7 @@ function SimulatorPanel() {
         </div>
         <span className="small">
           {sim.cursor} / {sim.total} 件
+          {(overview?.flow.waiting ?? 0) > 0 && <span className="muted">・処理待ち {overview?.flow.waiting}</span>}
           {sim.playing && <span className="live-dot" aria-label="受信中" />}
         </span>
         <span className="spacer" />
@@ -256,18 +257,17 @@ export function OpsHome() {
           <Kpi
             label="自動処理率"
             value={overview.automation_rate === null || f.classified < 5 ? '-' : pct(overview.automation_rate, 0)}
-            sub="人を介さず振り分けた割合"
             tone="ok"
           />
-          <Kpi label="人の対応待ち" value={waitingHuman} sub={`個人情報 ${f.pii_review} ／ 確認 ${f.review} ／ エスカレ ${f.escalated}`} tone={waitingHuman ? 'warn' : undefined} />
+          <Kpi label="対応待ち" value={waitingHuman} sub={`個人情報 ${f.pii_review} ／ 確認 ${f.review} ／ エスカレ ${f.escalated}`} tone={waitingHuman ? 'warn' : undefined} />
           <Kpi
             label="想定ラベルとの一致（最終）"
             value={acc(overview.final_accuracy)}
             sub={`モデルの予測だけなら ${acc(overview.model_accuracy)}（${overview.final_accuracy.n}件）`}
           />
-          <Kpi label="抜き取り確認の待ち" value={overview.audit_pending} sub={settings ? `自動分の ${pct(settings.audit_rate, 0)} を抜き取り` : undefined} />
+          <Kpi label="抜き取り確認の待ち" value={overview.audit_pending} />
           <Kpi label="外部に送らなかった件" value={f.blocked + f.kev_only} sub={`ブロック ${f.blocked} ／ Kev で完結 ${f.kev_only}`} />
-          <Kpi label="コスト（受付箱の分）" value={costText(overview.cost_usd)} sub="Jev の料金（Kev・MOCK は課金なし）" />
+          <Kpi label="コスト（受付箱の分）" value={costText(overview.cost_usd)} />
         </section>
       )}
 

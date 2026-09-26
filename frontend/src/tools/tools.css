@@ -95,3 +95,7 @@ h2.inline { margin: 0; }
 @media (min-width: 1001px) {
   .reply-input > textarea { height: auto; min-height: 140px; flex: 1 1 0; resize: vertical; }
 }
+
+/* 判定するボタンは右端の決まった位置に置き、文言が変わっても幅を変えない */
+.judge-row { justify-content: flex-end; }
+.judge-btn { min-width: 7.5em; }

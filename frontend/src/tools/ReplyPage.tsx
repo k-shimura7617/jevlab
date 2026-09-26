@@ -236,10 +236,9 @@ export function ReplyPage() {
             <summary className="small">約束してよい範囲（方針）</summary>
             <textarea aria-label="約束してよい範囲" rows={3} maxLength={1000} value={policyText} onChange={(e) => setPolicy(e.target.value)} />
           </details>
-          <div className="row">
-            <span className="spacer" />
-            <button type="button" disabled={busy || !inquiry.trim() || !draft.trim() || !target} onClick={check}>
-              {busy ? '判定中…' : '判定する（Ctrl+Enter）'}
+          <div className="row judge-row">
+            <button type="button" className="judge-btn" title="Ctrl+Enter" disabled={busy || !inquiry.trim() || !draft.trim() || !target} onClick={check}>
+              {busy ? '判定中…' : '判定する'}
             </button>
           </div>
         </section>
