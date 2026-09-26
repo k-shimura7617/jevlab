@@ -47,11 +47,11 @@ h2.inline { margin: 0; }
 /* 狭い画面では、モデルの選択と作成ボタンを折り返してよい */
 .rewrite .panel-head .row.tight { flex-wrap: wrap; }
 
-/* 広い画面: 入力と結果のカードを同じ高さに固定し、結果が変わっても下（書き換え案）が動かないようにする。
-   入力欄はカードの残りを埋め、結果はカードの中でスクロールする */
+/* 広い画面: 入力と結果のカードを同じ高さにそろえる。結果はスクロールせずに全部見える高さを最低限とし、
+   結果が出ても下（書き換え案）がなるべく動かないようにする。入力欄はカードの残りを埋める */
 @media (min-width: 1001px) {
   .tone-layout { align-items: stretch; }
-  .tone-layout > .panel { height: 640px; overflow: auto; }
+  .tone-layout > .panel { min-height: 940px; }
   .tone-input { display: flex; flex-direction: column; }
   .tone-input > * { flex: none; }
   .tone-input > textarea { flex: 1 1 auto; min-height: 150px; resize: none; }
