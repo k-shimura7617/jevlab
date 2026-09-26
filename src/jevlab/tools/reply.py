@@ -286,6 +286,14 @@ DRAFT_SYSTEM: Final = """あなたはカスタマーサポートの担当者で�
 - 出力は指定の JSON だけ。"""
 
 
+# ストリーミング（書いた分から画面に出す）では構造化出力を使えないので、本文だけを書かせる
+_TEXT_ONLY: Final = "- 出力は返信の本文だけ（前置き・説明・見出し・引用符は書かない）。"
+REWRITE_STREAM_SYSTEM: Final = REWRITE_SYSTEM.replace("- 出力は指定の JSON だけ。", _TEXT_ONLY)
+DRAFT_STREAM_SYSTEM: Final = DRAFT_SYSTEM.replace("- changes には、案で気を付けた点を書く。\n", "").replace(
+    "- 出力は指定の JSON だけ。", _TEXT_ONLY
+)
+
+
 class DraftRequest(BaseModel):
     inquiry: Text
     policy: Policy = ""
@@ -299,6 +307,25 @@ def draft_prompt(req: DraftRequest) -> str:
 class Finding(BaseModel):
     title: str = Field(max_length=60)
     detail: str = Field(max_length=200)
+
+
+class SuggestRequest(BaseModel):
+    """AI返信案。下書きがあれば直した案（指摘を渡す）、なければ問い合わせから書いた案。"""
+
+    inquiry: Text
+    draft: Annotated[str, StringConstraints(strip_whitespace=True, max_length=MAX_CHARS)] = ""
+    policy: Policy = ""
+    findings: list[Finding] = Field(default_factory=list, max_length=20)
+    model: ClaudeModel = "sonnet"
+
+
+def suggest_system_and_prompt(req: SuggestRequest) -> tuple[str, str]:
+    if req.draft:
+        rewrite = RewriteRequest(
+            inquiry=req.inquiry, draft=req.draft, policy=req.policy, findings=req.findings, model=req.model
+        )
+        return REWRITE_STREAM_SYSTEM, rewrite_prompt(rewrite)
+    return DRAFT_STREAM_SYSTEM, draft_prompt(DraftRequest(inquiry=req.inquiry, policy=req.policy, model=req.model))
 
 
 class RewriteRequest(BaseModel):
