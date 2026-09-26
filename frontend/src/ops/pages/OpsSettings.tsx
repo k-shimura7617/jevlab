@@ -251,6 +251,10 @@ export function OpsSettings() {
           <input type="checkbox" checked={c.escalate_urgent} onChange={(e) => set((s) => ({ ...s, classify: { ...s.classify, escalate_urgent: e.target.checked } }))} /> 緊急は確信度に関係なくエスカレーション
         </label>
         <Threshold label="僅差とみなす差" value={c.split_margin} onChange={(v) => set((s) => ({ ...s, classify: { ...s.classify, split_margin: v } }))} note="上位 2 つの差がこれ未満なら人が確認" />
+        <label className="small block">
+          <input type="checkbox" checked={c.insufficient_gate} onChange={(e) => set((s) => ({ ...s, classify: { ...s.classify, insufficient_gate: e.target.checked } }))} /> 判断材料が足りない件は人が確認
+        </label>
+        <Threshold label="足りないとみなす確率" value={c.insufficient_at} onChange={(v) => set((s) => ({ ...s, classify: { ...s.classify, insufficient_at: v } }))} note="これ以上なら自動にしない" />
       </Section>
 
       <Section id="kev-first" title="Kev で先に判定" desc="十分な確信度なら Jev を呼ばない">

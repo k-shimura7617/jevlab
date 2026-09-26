@@ -312,6 +312,16 @@ tr.off td { color: var(--muted); }
 .assign-by { font-size: 10px; color: var(--muted); border: 1px solid var(--line); border-radius: 3px; padding: 0 3px; margin-left: 3px; }
 .cat-filter { display: flex; flex-wrap: wrap; gap: 4px; margin: 4px 0; }
 .filter-chip[aria-pressed="true"] { background: var(--accent); border-color: var(--accent); color: #fff; }
+/* ダーク配色の明るい地（--accent）に白文字はコントラスト 2.8 しかないため、濃い文字にする。
+   上の指定と詳細度が同じなので、後ろに置いて勝たせる（評価画面の .active も同じ） */
+@media (prefers-color-scheme: dark) {
+  .filter-chip[aria-pressed="true"], .filter-chip.active { color: #0b1220; }
+}
+/* 担当範囲の案（Claude） */
+.scope-proposal { margin-top: 10px; padding: 10px 12px; border: 1px solid var(--accent); border-radius: 8px; background: var(--accent-soft); }
+.scope-proposal h3 { margin: 0 0 6px; font-size: 14px; }
+.scope-proposal textarea { width: 100%; font: inherit; font-size: 13px; }
+.staff-table td.scope .link-btn { display: block; margin-top: 2px; }
 .staff-table input, .staff-table textarea { width: 100%; font: inherit; font-size: 13px; }
 /* 狭い画面でも入力欄を潰さず、表ごと横にスクロールさせる */
 .staff-table td:nth-child(1) input { min-width: 6em; }

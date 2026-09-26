@@ -89,6 +89,9 @@ export function elapsedLabel(fromIso: string, now: number = Date.now()): string 
   return `${Math.floor(min / 60)}時間${min % 60}分`
 }
 
+// Jev の確信度は最大確率そのものではなく、選択肢の数で補正した値（(最大確率 − 1/N) ÷ (1 − 1/N)）
+export const CONFIDENCE_NOTE = '確信度＝最大確率を選択肢の数で補正した値（最大確率より低く出る）'
+
 export const PII_FLAG_LABELS: Record<PiiFlag, string> = {
   detected: '検出済み',
   // API の値は possible_name のままだが、実際は種類を問わず「確定できなかった候補がある」の意味

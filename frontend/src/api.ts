@@ -82,6 +82,18 @@ export interface QuestionMetrics {
   reliability: CalibrationBin[]
   mae: number | null
   brier: number | null
+  bias: NoulBias | null
+}
+
+/** Noul の偏り（正解が「いいえ」の件の P(はい) の平均）と、評価データでいちばんよく分けられる閾値。 */
+export interface NoulBias {
+  n_true: number
+  n_false: number
+  mean_yes_when_true: number | null
+  mean_yes_when_false: number | null
+  best_threshold: number
+  accuracy_at_best: number
+  accuracy_at_default: number
 }
 
 export interface EvalReport {

@@ -151,6 +151,9 @@ def decide_route(item: Item, settings: Settings) -> tuple[Route, str]:
         split = split_reason(answers, c.split_margin)
         if split:
             return "review", f"判断が割れている（{split}）"
+        lacking = answers.get("insufficient")
+        if c.insufficient_gate and lacking is not None and (lacking.value or 0.0) >= c.insufficient_at:
+            return "review", f"判断材料が足りない（{lacking.value or 0.0:.2f}）"
         return "routed", f"確信度 {conf:.2f} ≥ 自動の閾値 {auto:.2f}"
     if conf >= c.review_threshold:
         return "review", f"確信度 {conf:.2f}（{c.review_threshold:.2f}〜{auto:.2f}）"
@@ -197,10 +200,13 @@ def priority_parts(answers: Mapping[str, AnswerView]) -> dict[str, float]:
         a = answers.get(qid)
         return (a.value or 0.0) / scale if a is not None else 0.0
 
+    # 返金に触れていない件は、返金度の期待値（0 以外になりうる）を足さない
+    mentioned = answers.get("refund_mentioned")
+    refund = value("refund", 2) if mentioned is None or (mentioned.value or 0.0) >= 0.5 else 0.0
     return {
         "frustration": value("frustration", 2),
         "urgent": value("urgent", 1),
-        "refund": value("refund", 2),
+        "refund": refund,
         "publicity": value("publicity", 1),
     }
 
