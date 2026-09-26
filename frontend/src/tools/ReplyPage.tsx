@@ -5,6 +5,7 @@ import { pct, TARGET_SHORT, usd } from '../format'
 import { ops } from '../ops/api'
 import { Page, useShell, useTitle } from '../shell'
 import { tools, type Level, type ReplyCheck, type ReplyMeta, type ReplyResult, type RewriteResult } from './api'
+import { Hint } from '../components/hint'
 import { useElapsed } from './common'
 import { Sentences } from './Sentences'
 
@@ -97,6 +98,7 @@ export function ReplyPage() {
   const [inquiry, setInquiry] = useState('')
   const [draft, setDraft] = useState('')
   const [policy, setPolicy] = useState<string | null>(null)
+  const [policyOpen, setPolicyOpen] = useState(false)
   const [busy, setBusy] = useState(false)
   const [judged, setJudged] = useState<{ inquiry: string; draft: string; result: ReplyResult } | null>(null)
   const [rwBusy, setRwBusy] = useState(false)
@@ -238,14 +240,22 @@ export function ReplyPage() {
               }
             }}
           />
-          <label className="small" htmlFor="reply-policy">
-            方針
-          </label>
-          <textarea id="reply-policy" className="policy-box" rows={4} maxLength={1000} value={policyText} onChange={(e) => setPolicy(e.target.value)} />
           <div className="row judge-row">
             <button type="button" className="judge-btn" title="Ctrl+Enter" disabled={busy || !inquiry.trim() || !draft.trim() || !target} onClick={check}>
               {busy ? '判定中…' : '判定する'}
             </button>
+          </div>
+          {/* 方針は枠の下端に置く。開くと上の余白に広がり、下書き・判定するは動かない */}
+          <div className="policy-area">
+            {policyOpen && (
+              <textarea id="reply-policy" className="policy-box" aria-label="方針" rows={4} maxLength={1000} value={policyText} onChange={(e) => setPolicy(e.target.value)} />
+            )}
+            <div className="row">
+              <button type="button" className="secondary policy-toggle" aria-expanded={policyOpen} onClick={() => setPolicyOpen((v) => !v)}>
+                方針 {policyOpen ? '▾' : '▸'}
+              </button>
+              <Hint text={'判定と AI返信案は、方針を超える約束をしていないかを見ます。\n開くと方針を直せます。'} />
+            </div>
           </div>
         </section>
 
