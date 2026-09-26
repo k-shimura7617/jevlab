@@ -320,6 +320,27 @@ class Store:
         sql = "SELECT * FROM events" + (f" WHERE {' AND '.join(where)}" if where else "") + " ORDER BY id LIMIT ?"
         return self._events(sql, (*args, limit))
 
+    def clear_slack_refs(self) -> int:
+        """件に控えた実際の Slack の投稿（親・そのほかの投稿）を忘れる。Slack 側の投稿を消した後に使う。"""
+        changed = 0
+        for item in self.items(limit=100_000):
+            if item.slack_ts or item.slack_more or item.slack_parent_pending:
+                self.update(
+                    item.id,
+                    lambda i: i.model_copy(
+                        update={
+                            "slack_channel": None,
+                            "slack_ts": None,
+                            "slack_more": [],
+                            "slack_parent_pending": False,
+                            "slack_notified": False,
+                            "slack_reminded": False,
+                        }
+                    ),
+                )
+                changed += 1
+        return changed
+
     def add_audit_export(self, conditions: str, rows: int) -> None:
         with self._tx() as db:
             db.execute("INSERT INTO audit_exports(at, conditions, rows) VALUES(?, ?, ?)", (now_iso(), conditions, rows))

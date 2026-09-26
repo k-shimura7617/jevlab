@@ -2,7 +2,7 @@ import { useState } from 'react'
 import { useNavigate } from 'react-router'
 import { errorMessage } from '../../api'
 import { Page, useTitle } from '../../shell'
-import { ops, type Channel, type ImportRow, type ParsedFile, type Settings, type SlackSettings, type SlackState } from '../api'
+import { ops, type Channel, type ImportRow, type ParsedFile, type Settings, type SlackSettings, type SlackState, type SlackStatus } from '../api'
 import { guessCategory, guessMapping, MAPPED_FIELDS, SAMPLE_CSV, toIsoDate, type MappedField } from '../csv'
 import { useAutoSave } from '../autosave'
 import { SaveState } from '../components'
@@ -92,6 +92,30 @@ const slackInvalid = (d: Settings): string | null => {
   return bad.length ? `チャンネル ID の形式が違います: ${bad.join(', ')}` : remindInvalid(d)
 }
 
+/** 投稿先のチャンネルから jevlab の投稿を消す（デモで流しすぎたとき用）。 */
+function SlackPurge({ purge, onStarted }: { purge: SlackStatus['purge']; onStarted: () => void }) {
+  const [error, setError] = useState<string | null>(null)
+  const start = () => {
+    if (!window.confirm('Slack の投稿先チャンネルから、jevlab の投稿（スレッドの返信を含む）をすべて削除します。本当に削除しますか？')) return
+    setError(null)
+    ops
+      .slackPurge()
+      .then(onStarted)
+      .catch((e: unknown) => setError(errorMessage(e)))
+  }
+  return (
+    <div className="row">
+      <button type="button" className="danger" disabled={purge.running} onClick={start}>
+        Slack の投稿を全削除
+      </button>
+      {purge.running && <span className="small">削除中 {purge.deleted} / {purge.total || '…'}</span>}
+      {!purge.running && purge.finished_at && !purge.error && <span className="muted small">{purge.deleted} 件を削除しました</span>}
+      {purge.error && <span className="error small">{purge.error}</span>}
+      {error && <span className="error small">{error}</span>}
+    </div>
+  )
+}
+
 function SlackPanel() {
   const status = usePolling(ops.slack, 3000)
   const auto = useAutoSave(slackChanged, mergeSlack, slackInvalid)
@@ -128,6 +152,7 @@ function SlackPanel() {
       )}
       {st?.outbound.last_error && <div className="error small">送信: {st.outbound.last_error}</div>}
       {st?.inbound.last_error && <div className="error small">受信: {st.inbound.last_error}</div>}
+      {st?.bot_token && <SlackPurge purge={st.purge} onStarted={status.reload} />}
       <details className="slack-settings">
       <summary className="small">設定（送信・受信・呼び出し・チャンネル）</summary>
       <div className="form-grid">

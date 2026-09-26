@@ -321,6 +321,12 @@ def test_audit_csv_filters_masks_and_records_the_export(client: TestClient) -> N
     assert len(exports) == 2 and "Shift_JIS" in exports[0]["conditions"]
 
 
+def test_slack_purge_needs_a_token(client: TestClient) -> None:
+    res = client.post("/api/ops/slack/purge")
+    assert res.status_code == 409 and "SLACK_BOT_TOKEN" in res.text
+    assert client.get("/api/ops/slack").json()["purge"]["running"] is False
+
+
 def test_disconnected_connector_rejects_ingest(client: TestClient) -> None:
     settings = client.get("/api/ops/settings").json()
     settings["connectors"]["mail"] = False

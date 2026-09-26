@@ -268,6 +268,8 @@ export interface SlackStatus {
   outbound: { state: SlackState; detail: string; count: number; last_error: string | null }
   inbound: { state: SlackState; detail: string; count: number; last_error: string | null }
   mirrorable: string[]
+  // 投稿先のチャンネルから jevlab の投稿を消す作業
+  purge: { running: boolean; deleted: number; total: number; error: string | null; finished_at: string | null }
 }
 
 export interface Settings {
@@ -450,6 +452,7 @@ export const ops = {
     call<SimulatorState>('POST', '/simulator', c),
   reset: () => call<{ detail: string }>('POST', '/reset'),
   slack: () => call<SlackStatus>('GET', '/slack'),
+  slackPurge: () => call<SlackStatus>('POST', '/slack/purge'),
   posts: (limit = 300) => call<Post[]>('GET', `/posts?limit=${limit}`),
   bulkAssign: (ids: string[], assignee: string) => call<BulkResult>('POST', '/bulk/assign', { ids, assignee }),
   bulkPii: (ids: string[]) => call<BulkResult>('POST', '/bulk/pii', { ids }),

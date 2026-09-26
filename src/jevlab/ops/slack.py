@@ -71,6 +71,14 @@ class SlackApi(Protocol):
         """投稿にリアクションを付ける（付いていれば何もしない）。"""
         ...
 
+    def own_messages(self, channel: str, bot_user: str) -> list[str]:
+        """チャンネルにあるボット自身の投稿（スレッドの返信を含む）の ts を、返信を先にして返す。"""
+        ...
+
+    def delete_message(self, channel: str, ts: str) -> None:
+        """ボット自身の投稿を消す（もう無ければ何もしない）。"""
+        ...
+
 
 class InboundHandle(Protocol):
     def close(self) -> None: ...
@@ -97,6 +105,16 @@ class DirectionStatus(BaseModel):
     last_error: str | None = None
 
 
+class PurgeStatus(BaseModel):
+    """投稿先のチャンネルから、jevlab の投稿を消す作業の進み具合。"""
+
+    running: bool = False
+    deleted: int = 0
+    total: int = 0
+    error: str | None = None
+    finished_at: str | None = None
+
+
 class SlackStatus(BaseModel):
     bot_token: bool
     app_token: bool
@@ -104,6 +122,7 @@ class SlackStatus(BaseModel):
     outbound: DirectionStatus
     inbound: DirectionStatus
     mirrorable: list[str]
+    purge: PurgeStatus
 
 
 # ---- 実際の SDK を使う実装 ----
@@ -174,6 +193,47 @@ class SdkSlackApi:
             return None
 
         return self._call(f"{channel} の確認", find)
+
+    def own_messages(self, channel: str, bot_user: str) -> list[str]:
+        def mine(m: object) -> bool:
+            # ほかのボット・人の投稿は消さない（消せない）ので、ボット自身のユーザーの投稿だけ
+            return isinstance(m, dict) and m.get("user") == bot_user
+
+        def collect() -> list[str]:
+            parents: list[str] = []
+            replies: list[str] = []
+            cursor: str | None = None
+            while True:
+                res = self.client.conversations_history(channel=channel, limit=200, cursor=cursor)
+                for m in res.get("messages") or []:
+                    if not isinstance(m, dict):
+                        continue
+                    if int(m.get("reply_count") or 0) > 0:
+                        thread = self.client.conversations_replies(channel=channel, ts=str(m["ts"]), limit=200)
+                        replies += [
+                            str(x["ts"]) for x in thread.get("messages") or [] if mine(x) and x.get("ts") != m.get("ts")
+                        ]
+                    if mine(m):
+                        parents.append(str(m["ts"]))
+                cursor = (res.get("response_metadata") or {}).get("next_cursor") or None
+                if not cursor:
+                    break
+            # 親より先に返信を消す（親を先に消すと、返信だけが残った「削除済み」の親が見える）
+            return replies + parents
+
+        return self._call(f"{channel} の投稿の一覧", collect)
+
+    def delete_message(self, channel: str, ts: str) -> None:
+        from slack_sdk.errors import SlackApiError
+
+        def delete() -> None:
+            try:
+                self.client.chat_delete(channel=channel, ts=ts)
+            except SlackApiError as e:
+                if e.response.get("error") != "message_not_found":
+                    raise
+
+        self._call(f"{channel} の投稿の削除", delete)
 
     def add_reaction(self, channel: str, ts: str, name: str) -> None:
         from slack_sdk.errors import SlackApiError
@@ -334,6 +394,8 @@ class SlackConnector:
     _loop: asyncio.AbstractEventLoop | None = None
     # 受信するチャンネル（SDK のスレッドから読むため、設定を読むたびに更新しておく）
     _channels: list[str] = field(default_factory=list)
+    purge_status: PurgeStatus = field(default_factory=PurgeStatus)
+    _purge_task: asyncio.Task[None] | None = None
 
     @classmethod
     def from_env(cls, pipeline: Pipeline, env: Mapping[str, str] = os.environ) -> SlackConnector:
@@ -356,6 +418,7 @@ class SlackConnector:
             if self.inbound_factory
             else DirectionStatus(state="unconfigured", detail="SLACK_APP_TOKEN と SLACK_BOT_TOKEN の両方が必要"),
             mirrorable=list(MIRRORABLE),
+            purge=self.purge_status,
         )
 
     async def run(self) -> None:
@@ -635,6 +698,39 @@ class SlackConnector:
             # 切れても SDK がつなぎ直すので、いまつながっているかを表示に出す
             self.inbound.state = "on" if self._handle.is_connected() else "connecting"
             self.inbound.detail = f"受信するチャンネル: {', '.join(channels) or '（未設定）'}"
+
+    def start_purge(self) -> PurgeStatus:
+        """投稿先のチャンネルから jevlab の投稿を消し始める（裏で進め、進み具合は状態で見る）。"""
+        if self.api is None:
+            raise PermissionError("SLACK_BOT_TOKEN が未設定です")
+        if self.purge_status.running:
+            return self.purge_status
+        channels = sorted(set(self.pipeline.store.settings().slack.channel_map.values()))
+        if not channels:
+            raise ValueError("投稿先のチャンネル ID が設定されていません")
+        self.purge_status = PurgeStatus(running=True)
+        self._purge_task = asyncio.create_task(self._purge(channels))
+        return self.purge_status
+
+    async def _purge(self, channels: list[str]) -> None:
+        st = self.purge_status
+        try:
+            if not await self._ensure_bot_user() or self.bot_user is None:
+                raise SlackSendError("ボットのユーザーを確かめられません（トークンを確かめてください）")
+            api = self._api()
+            targets = [(c, ts) for c in channels for ts in await asyncio.to_thread(api.own_messages, c, self.bot_user)]
+            st.total = len(targets)
+            for channel, ts in targets:
+                await asyncio.to_thread(api.delete_message, channel, ts)
+                st.deleted += 1
+            # 消した投稿への返信・✅ を付けに行かないよう、件に控えた Slack の投稿を忘れる
+            self.pipeline.store.clear_slack_refs()
+        except SlackSendError as e:
+            log.warning("Slack の投稿を消せませんでした: %s", e)
+            st.error = str(e)
+        finally:
+            st.running = False
+            st.finished_at = datetime.now(UTC).isoformat(timespec="seconds")
 
     async def stop_inbound(self) -> None:
         handle, self._handle = self._handle, None

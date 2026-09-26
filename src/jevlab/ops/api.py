@@ -710,6 +710,17 @@ async def slack_status(request: Request) -> SlackStatus:
     return connector.status()
 
 
+@router.post("/slack/purge")
+async def slack_purge(request: Request) -> SlackStatus:
+    """投稿先のチャンネルから jevlab の投稿を消し始める（デモで流しすぎたとき用）。"""
+    connector: SlackConnector = request.app.state.slack
+    try:
+        connector.start_purge()
+    except (PermissionError, ValueError) as e:
+        raise _http(e) from e
+    return connector.status()
+
+
 @router.get("/posts")
 async def posts(pipeline: PipelineDep, limit: Annotated[int, Query(ge=1, le=1000)] = 300) -> list[Post]:
     return pipeline.store.posts(limit)
