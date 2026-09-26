@@ -98,6 +98,7 @@ function QuickActions({
           ))}
         </>
       )}
+      {item.status === 'routed' && meta && <CloseRouted key={`${item.id}:${item.category ?? ''}`} item={item} meta={meta} busy={busy} run={run} />}
       {item.status === 'escalated' && here !== 'escalations' && (
         <Link className="btn" to={`/ops/escalations?id=${item.id}`}>
           エスカレーションで対応する
@@ -109,6 +110,34 @@ function QuickActions({
         </button>
       )}
       {error && <span className="error small">{error}</span>}
+    </div>
+  )
+}
+
+/**
+ * 振り分け済みの件の対応完了。最終の分類は、いまの分類を最初から選んでおく。
+ * 触らずに完了すれば「分類は合っていた」、切り替えれば「修正した」として記録し、閾値の調整の正解に使う。
+ */
+function CloseRouted({ item, meta, busy, run }: { item: Item; meta: Meta; busy: boolean; run: (f: () => Promise<unknown>) => void }) {
+  const [category, setCategory] = useState(item.category ?? '')
+  const fixed = category !== (item.category ?? '')
+  return (
+    <div className="row" data-testid="close-routed">
+      <label className="muted small" htmlFor={`close-category-${item.id}`}>
+        最終の分類
+      </label>
+      <select id={`close-category-${item.id}`} value={category} onChange={(e) => setCategory(e.target.value)}>
+        {item.category === null && <option value="">（未分類）</option>}
+        {Object.entries(meta.categories).map(([k, label]) => (
+          <option key={k} value={k}>
+            {label}
+          </option>
+        ))}
+      </select>
+      <button type="button" disabled={busy || !category} onClick={() => run(() => ops.close(item.id, category || null))}>
+        対応完了にする
+      </button>
+      <span className="muted small">{fixed ? '分類を修正して完了します' : '分類はこのままで合っていた、として記録します'}</span>
     </div>
   )
 }

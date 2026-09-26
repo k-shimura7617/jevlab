@@ -767,11 +767,17 @@ class Pipeline:
         return item
 
     def close(self, item_id: str, category: str | None) -> Item:
+        """エスカレーション・振り分け済みの件を、人が対応して完了にする。
+
+        最終の分類を変えなければ「分類は合っていた」、変えれば「修正した」として記録する（閾値の調整の正解になる）。
+        """
         item = self.store.get(item_id)
-        if item.status != "escalated":
-            raise ValueError(f"{item_id} はエスカレーション中ではありません（状態: {item.status}）")
+        if item.status not in ("escalated", "routed"):
+            raise ValueError(f"{item_id} はエスカレーション中でも振り分け済みでもありません（状態: {item.status}）")
         final = category or item.category
         fixed = final is not None and final != item.category
+        # 抜き取り確認を待っている件は、完了の判断を抜き取りの結果にもする
+        audit_result = ("fixed" if fixed else "ok") if item.audit and item.audit_result is None else item.audit_result
         updated = self.store.update(
             item_id,
             lambda i: i.model_copy(
@@ -779,16 +785,25 @@ class Pipeline:
                     "status": "closed",
                     "category": final,
                     "decided_by": "human" if fixed or i.category is None else i.decided_by,
+                    "audit_result": audit_result,
                     "closed_at": now_iso(),
                 }
             ),
         )
-        # 対応が終わった件も分類ごとのチャンネルに残す（振り分け済み・完了の件がすべてチャンネルで追えるように）
-        channel = ROUTE_CHANNELS.get(final or "", "#cs-その他")
-        who = f"（担当: {self.staff_name(updated.assignee)}）" if updated.assignee else ""
-        self.store.add_post(
-            channel, "担当者（対応完了）", f"{item_id}「{safe_title(updated)}」対応完了{who}", item_id, updated.fields
-        )
+        # 対応が終わった件も分類ごとのチャンネルに残す（振り分け済み・完了の件がすべてチャンネルで追えるように）。
+        # 振り分け済みの件は、そのチャンネルに投稿済みなので、分類を直したときだけ新しいチャンネルに投稿する
+        # （完了は Slack では元の投稿のスレッドとリアクションで知らせる）
+        if item.status == "escalated" or fixed:
+            channel = ROUTE_CHANNELS.get(final or "", "#cs-その他")
+            who = f"（担当: {self.staff_name(updated.assignee)}）" if updated.assignee else ""
+            fix = f"・分類を {category_label(item.category)} から修正" if fixed and item.status == "routed" else ""
+            self.store.add_post(
+                channel,
+                "担当者（対応完了）",
+                f"{item_id}「{safe_title(updated)}」対応完了{who}{fix}",
+                item_id,
+                updated.fields,
+            )
         self.store.add_event(
             item_id,
             "close",

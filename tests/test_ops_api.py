@@ -344,6 +344,36 @@ def test_decide_rejects_routed_items_outside_audit(client: TestClient) -> None:
     assert client.post(f"/api/ops/items/{item_id}/decide", json={"category": "other"}).status_code == 422
 
 
+def test_routed_items_can_be_closed_and_count_as_human_checked(client: TestClient) -> None:
+    configure(
+        client,
+        guard__human_check=False,
+        classify__auto_threshold=0.0,
+        classify__review_threshold=0.0,
+        classify__escalate_urgent=False,
+        classify__escalate_strong_frustration=False,
+        audit_rate=1.0,
+    )
+    kept = ingest(client, "ラッピングはできますか？")
+    fixed = ingest(client, "ラッピングはできますか？（2 件目）")
+    first = settle(client, kept)["item"]
+    second = settle(client, fixed)["item"]
+    assert first["status"] == second["status"] == "routed"
+    # 分類を触らずに完了 → 合っていた（抜き取りの結果も「問題なし」）
+    closed = client.post(f"/api/ops/items/{kept}/close", json={"category": None}).json()
+    assert closed["status"] == "closed" and closed["category"] == first["category"]
+    assert closed["audit_result"] == "ok"
+    # 分類を切り替えて完了 → 修正（人が決めた分類になる）
+    other = next(c for c in ("inquiry", "other") if c != second["category"])
+    changed = client.post(f"/api/ops/items/{fixed}/close", json={"category": other}).json()
+    assert changed["category"] == other and changed["decided_by"] == "human" and changed["audit_result"] == "fixed"
+    # 完了した件は、閾値の調整で人が確かめた正解として数える
+    report = client.get("/api/ops/tuning", params={"source": "human"}).json()
+    assert report["n"] == 2
+    # 完了した件は、もう完了にできない
+    assert client.post(f"/api/ops/items/{kept}/close", json={"category": None}).status_code == 422
+
+
 def test_audit_decision_records_result_once(client: TestClient) -> None:
     configure(
         client,

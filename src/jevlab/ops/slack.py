@@ -5,6 +5,8 @@
 
 - 送信: 疑似チャンネルへの投稿のうち、設定で Slack のチャンネル ID を割り当てたものを chat.postMessage で流す。
   投稿は個人情報を伏せた見出しだけなので、そのまま流してよい。お問い合わせ窓口（元の本文）は流さない。
+  件の最初の投稿（振り分け・エスカレーション）を親にし、件の詳細へのリンクを付ける。
+  担当の変更・対応完了はそのスレッドに書き足し、完了したら親に ✅ のリアクションを付ける。
 - 受信: 設定したチャンネルに人が書いたメッセージ（スレッドの返信・編集・ボットの投稿を除く）を受付箱に取り込む。
 
 トークンは環境変数 SLACK_BOT_TOKEN（xoxb-）と SLACK_APP_TOKEN（xapp-）から読む。
@@ -28,7 +30,7 @@ from typing import Final, Literal, Protocol, TypeVar
 from pydantic import BaseModel
 
 from jevlab.ops.models import Event, IngestRequest, Item, Post, Settings, StaffMember
-from jevlab.ops.pipeline import ESCALATION_CHANNEL, ROUTE_CHANNELS, Pipeline
+from jevlab.ops.pipeline import ESCALATION_CHANNEL, ROUTE_CHANNELS, Pipeline, category_label
 from jevlab.ops.sla import minutes_left
 from jevlab.ops.store import ItemNotFoundError
 
@@ -43,6 +45,8 @@ _TICK_S: Final = 2.0
 _REMIND_EVERY_S: Final = 30.0
 # 送信に続けて失敗したときの待ち時間の上限
 _MAX_BACKOFF_S: Final = 60.0
+# 対応完了の印（親の投稿に付けるリアクション）
+DONE_REACTION: Final = "white_check_mark"
 
 State = Literal["unconfigured", "off", "connecting", "on", "error"]
 
@@ -60,6 +64,10 @@ class SlackApi(Protocol):
 
     def find_message(self, channel: str, marker: str) -> str | None:
         """チャンネルの最近の投稿から、marker を含むボットの投稿を探して ts を返す（なければ None）。"""
+        ...
+
+    def add_reaction(self, channel: str, ts: str, name: str) -> None:
+        """投稿にリアクションを付ける（付いていれば何もしない）。"""
         ...
 
 
@@ -166,6 +174,19 @@ class SdkSlackApi:
 
         return self._call(f"{channel} の確認", find)
 
+    def add_reaction(self, channel: str, ts: str, name: str) -> None:
+        from slack_sdk.errors import SlackApiError
+
+        def add() -> None:
+            try:
+                self.client.reactions_add(channel=channel, timestamp=ts, name=name)
+            except SlackApiError as e:
+                # やり直しなどで既に付いているのは、付けられたのと同じ
+                if e.response.get("error") != "already_reacted":
+                    raise
+
+        self._call(f"{channel} へのリアクション", add)
+
 
 def sdk_inbound_factory(app_token: str, bot_token: str) -> InboundFactory:
     def start(on_message: Callable[[Mapping[str, object]], None]) -> InboundHandle:
@@ -222,12 +243,13 @@ def left_text(minutes: float) -> str:
 
 
 def link_text(item_id: str, settings: Settings) -> str:
-    return f"<{settings.slack.app_url.rstrip('/')}/ops/escalations?id={item_id}|画面で開く>"
+    """件の詳細の画面へのリンク。"""
+    return f"<{settings.slack.app_url.rstrip('/')}/ops/items/{item_id}|画面で開く>"
 
 
 def link_marker(item_id: str) -> str:
     """親の投稿を Slack 側で探すときの目印（画面へのリンクの一部）。"""
-    return f"/ops/escalations?id={item_id}|"
+    return f"/ops/items/{item_id}|"
 
 
 def mention(member: StaffMember | None) -> str:
@@ -407,7 +429,13 @@ class SlackConnector:
                 try:
                     if post.channel == ESCALATION_CHANNEL and item is not None:
                         await self._escalation(post, item, target, settings)
-                    elif post.item_id is None or item is not None:
+                    elif item is not None and item.slack_ts is None:
+                        # 振り分けの最初の投稿を親にする（完了の返信とリアクションをここに付ける）
+                        await self._parent(post, item, target, settings)
+                    elif item is not None:
+                        # 同じ件の 2 つ目以降の投稿（分類の修正・エスカレーションの完了など）は、リンクを付けて単独で流す
+                        await self._send(target, f"{post_text(post, item)}\n{link_text(item.id, settings)}")
+                    elif post.item_id is None:
                         await self._send(target, post_text(post, item))
                 except SlackSendError as e:
                     if self._failed(e):
@@ -422,11 +450,27 @@ class SlackConnector:
         except ItemNotFoundError:  # 受付箱を空にした後など
             return None
 
+    async def _parent(self, post: Post, item: Item, channel: str, settings: Settings) -> Item:
+        """件の親の投稿（件の詳細へのリンクつき）を送り、その ts を件に残す。
+
+        親の送信が応答なく終わった（投稿できたか分からない）ときは、やり直す前に Slack 側を探して二重に投稿しない。
+        """
+        store = self.pipeline.store
+        ts = None
+        if item.slack_parent_pending:
+            ts = await asyncio.to_thread(self._api().find_message, channel, link_marker(item.id))
+        if ts is None:
+            store.update(item.id, lambda i: i.model_copy(update={"slack_parent_pending": True}))
+            ts = await self._send(channel, f"{post_text(post, item)}\n{link_text(item.id, settings)}")
+        return store.update(
+            item.id,
+            lambda i: i.model_copy(update={"slack_channel": channel, "slack_ts": ts, "slack_parent_pending": False}),
+        )
+
     async def _escalation(self, post: Post, item: Item, channel: str, settings: Settings) -> None:
         """エスカレーションは親の投稿（画面へのリンクつき）と、担当についてのスレッドの返信に分ける。
 
         親と返信は別々に記録し、途中で失敗してやり直しても二重に書かない。
-        親の送信が応答なく終わった（投稿できたか分からない）ときは、やり直す前に Slack 側を探す。
         """
         store = self.pipeline.store
         if item.slack_ts is not None and item.slack_notified:
@@ -434,20 +478,22 @@ class SlackConnector:
             await self._send(item.slack_channel or channel, post_text(post, item), item.slack_ts)
             return
         if item.slack_ts is None:
-            ts = None
-            if item.slack_parent_pending:
-                ts = await asyncio.to_thread(self._api().find_message, channel, link_marker(item.id))
-            if ts is None:
-                store.update(item.id, lambda i: i.model_copy(update={"slack_parent_pending": True}))
-                ts = await self._send(channel, f"{post_text(post, item)}\n{link_text(item.id, settings)}")
-            item = store.update(
-                item.id,
-                lambda i: i.model_copy(
-                    update={"slack_channel": channel, "slack_ts": ts, "slack_parent_pending": False}
-                ),
-            )
+            item = await self._parent(post, item, channel, settings)
         await self._send(item.slack_channel or channel, assign_line(item, settings), item.slack_ts)
         store.update(item.id, lambda i: i.model_copy(update={"slack_notified": True}))
+
+    async def _mark_done(self, item: Item) -> None:
+        """完了した件の親の投稿に ✅ を付ける。
+
+        返信はもう送ったので、失敗してもやり直さない（やり直すと返信が二重になる）。エラーは画面に出す。
+        """
+        if not (item.slack_channel and item.slack_ts):
+            return
+        try:
+            await asyncio.to_thread(self._api().add_reaction, item.slack_channel, item.slack_ts, DONE_REACTION)
+        except SlackSendError as e:
+            log.warning("完了のリアクションを付けられませんでした: %s", e)
+            self.outbound.last_error = f"{e}（reactions:write の権限があるか確かめてください）"
 
     async def _follow(self, settings: Settings) -> None:
         """人が担当を変えた・対応を完了した件は、Slack のスレッドに書き足す。"""
@@ -464,6 +510,9 @@ class SlackConnector:
                 except SlackSendError as e:
                     if self._failed(e):
                         return
+                else:
+                    if event.kind == "close":
+                        await self._mark_done(item)
             store.put_meta(_EVENT_CURSOR, str(event.id))
 
     @staticmethod
@@ -480,7 +529,13 @@ class SlackConnector:
         if event.kind == "close":
             who = event.data.get("assignee")
             name = staff[who].name if isinstance(who, str) and who in staff else "未割り当て"
-            return f"対応完了（担当: {name}）"
+            before, after = event.data.get("before"), event.data.get("after")
+            fixed = (
+                f"。分類を {category_label(before)} から {category_label(after)} に修正"
+                if isinstance(before, str) and isinstance(after, str) and before != after
+                else ""
+            )
+            return f"対応完了（担当: {name}）{fixed}"
         return None
 
     async def _remind(self, settings: Settings) -> None:
