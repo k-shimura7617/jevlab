@@ -4,7 +4,7 @@ import { errorMessage } from '../../api'
 import { pct } from '../../format'
 import { Page, useTitle } from '../../shell'
 import { ops } from '../api'
-import { costText, Kpi } from '../components'
+import { costText, KevQueueNote, Kpi } from '../components'
 import { ACTOR_LABELS, clockTime } from '../format'
 import { useOps } from '../state'
 
@@ -214,6 +214,7 @@ export function OpsHome() {
             >
               個人情報あり ／ マスク {f.masked}・ブロック {f.blocked}
               {f.pii_review > 0 && <span className="node-alert">人の確認待ち {f.pii_review}</span>}
+              <KevQueueNote queue={overview?.kev_queue} available={overview?.kev?.available ?? true} />
             </Node>
             <span className="flow-arrow" aria-hidden>
               →

@@ -212,6 +212,15 @@ export interface SimulatorState {
   total: number
 }
 
+export interface KevQueue {
+  waiting: number
+  running: number
+  median_ms: number | null
+  samples: number
+  eta_s: number | null
+  last_at: string | null
+}
+
 export interface Overview {
   counts: Record<Status, number>
   flow: Flow
@@ -224,6 +233,8 @@ export interface Overview {
   recent: OpsEvent[]
   // 設定が Kev を使うときだけ入る
   kev: { endpoint: string; available: boolean; reason: string | null; uses: string[] } | null
+  // Kev の処理待ちと見込み（Kev を使う設定のときだけ）
+  kev_queue: KevQueue | null
 }
 
 export interface SlackSettings {

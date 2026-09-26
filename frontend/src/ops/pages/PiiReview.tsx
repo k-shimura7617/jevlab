@@ -4,7 +4,7 @@ import { errorMessage } from '../../api'
 import { pct } from '../../format'
 import { Page, useTitle } from '../../shell'
 import { ops, type Item, type PiiAction, type PiiType, type Span } from '../api'
-import { BulkBar, CheckRow, Empty, ItemRow } from '../components'
+import { BulkBar, CheckRow, Empty, ItemRow, KevQueueNote } from '../components'
 import { ACTION_LABELS, PII_FLAG_LABELS, PII_FLAG_NOTES, safeToBulk } from '../format'
 import { SelectableText } from '../SelectableText'
 import { useOps, usePolling } from '../state'
@@ -307,7 +307,7 @@ function useChecked(items: Item[]): [Set<string>, (id: string, on: boolean) => v
 
 export function PiiReview() {
   useTitle('個人情報の確認')
-  const { meta, settings, refresh } = useOps()
+  const { meta, settings, refresh, overview } = useOps()
   const [params, setParams] = useSearchParams()
   const list = usePolling(() => ops.items(['pii_review']))
   const items = useMemo(() => [...(list.data ?? [])].sort((a, b) => a.seq - b.seq), [list.data])
@@ -377,6 +377,7 @@ export function PiiReview() {
     <Page wide crumbs={[{ label: '運用', to: '/ops' }, { label: '個人情報の確認' }]}>
       <div className="panel-head">
         <h1>個人情報の確認</h1>
+        <KevQueueNote queue={overview?.kev_queue} available={overview?.kev?.available ?? true} />
         <span className="muted small">確認してから Jev に送る</span>
       </div>
       <div className="queue-layout">
