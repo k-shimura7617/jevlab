@@ -11,7 +11,7 @@ import json
 import os
 import sqlite3
 import threading
-from collections.abc import Callable, Iterable, Iterator
+from collections.abc import Callable, Iterable, Iterator, Sequence
 from contextlib import contextmanager
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
@@ -270,6 +270,11 @@ class Store:
 
     def events(self, item_id: str) -> list[Event]:
         return self._events("SELECT * FROM events WHERE item_id = ? ORDER BY id", (item_id,))
+
+    def events_of_kind(self, kinds: Sequence[str]) -> list[Event]:
+        """指定した種類の経過を、全件から古い順に返す（集計用）。"""
+        marks = ", ".join("?" for _ in kinds)
+        return self._events(f"SELECT * FROM events WHERE kind IN ({marks}) ORDER BY id", tuple(kinds))
 
     def events_after(self, after_id: int, limit: int = 200) -> list[Event]:
         """id が after_id より大きい経過を古い順に返す（実際の Slack への返信用）。"""

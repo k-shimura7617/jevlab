@@ -12,7 +12,7 @@ from pydantic import BaseModel, Field
 
 from jevlab.apps.mail.questions import CATEGORY_LABELS
 from jevlab.core import kev_health, target
-from jevlab.ops import misses, tuning
+from jevlab.ops import misses, pii_eval, tuning
 from jevlab.ops.models import (
     CHANNEL_LABELS,
     STATUSES,
@@ -356,6 +356,16 @@ async def miss_summary(pipeline: PipelineDep, catch: Annotated[float, Query(gt=0
     store = pipeline.store
     threshold = store.settings().guard.leftover_threshold
     return misses.summarize(store.misses(), store.items(limit=10_000), catch, threshold)
+
+
+@router.get("/pii-eval")
+async def pii_eval_summary(pipeline: PipelineDep) -> pii_eval.PiiEval:
+    store = pipeline.store
+    return pii_eval.summarize(
+        store.items(limit=10_000),
+        store.events_of_kind(["guard", "pii_review"]),
+        store.settings().guard.leftover_threshold,
+    )
 
 
 class Decide(BaseModel):

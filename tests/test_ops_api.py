@@ -100,6 +100,21 @@ def test_structured_pii_goes_to_human_check_then_masked(client: TestClient) -> N
     assert done["category"] is not None
 
 
+def test_pii_eval_counts_only_items_a_human_reviewed(client: TestClient) -> None:
+    assert client.get("/api/ops/pii-eval").json()["items"] == 0
+    item_id = ingest(client, "配送先の電話番号を 090-0000-1234 に変更してください。")
+    item = settle(client, item_id)["item"]
+    assert item["status"] == "pii_review"
+    client.post(f"/api/ops/items/{item_id}/pii", json={"spans": item["pii"], "action": "continue"})
+    settle(client, item_id)
+    # 1 件ずつ確認した件は数える。一括で編集なしに流した件は数えない
+    other = ingest(client, "電話は 090-1111-2222 です。")
+    assert settle(client, other)["item"]["status"] == "pii_review"
+    client.post("/api/ops/bulk/pii", json={"ids": [other]})
+    settle(client, other)
+    assert client.get("/api/ops/pii-eval").json()["items"] == 1
+
+
 def test_human_can_add_missed_span(client: TestClient) -> None:
     body = "電話 090-0000-1234。受取人は木村です"
     item_id = ingest(client, body)

@@ -120,7 +120,6 @@ function QuickActions({
  */
 function CloseRouted({ item, meta, busy, run }: { item: Item; meta: Meta; busy: boolean; run: (f: () => Promise<unknown>) => void }) {
   const [category, setCategory] = useState(item.category ?? '')
-  const fixed = category !== (item.category ?? '')
   return (
     <div className="row" data-testid="close-routed">
       <label className="muted small" htmlFor={`close-category-${item.id}`}>
@@ -137,7 +136,6 @@ function CloseRouted({ item, meta, busy, run }: { item: Item; meta: Meta; busy: 
       <button type="button" disabled={busy || !category} onClick={() => run(() => ops.close(item.id, category || null))}>
         対応完了にする
       </button>
-      <span className="muted small">{fixed ? '分類を修正して完了します' : '分類はこのままで合っていた、として記録します'}</span>
     </div>
   )
 }

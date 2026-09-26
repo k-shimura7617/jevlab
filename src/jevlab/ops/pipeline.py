@@ -658,7 +658,8 @@ class Pipeline:
             f"{'一括で確認' if bulk else '人が確認'}: 追加 {len(added)} 件・除外 {max(removed, 0)} 件"
             + (" → 人の判断でブロック" if action == "block" else "")
             + (f"（規則で確定した {len(kept)} 件は外せないため戻しました）" if kept else ""),
-            {"added": [s.model_dump() for s in added]},
+            # reviewed: 人が本文を見て判断したか（一括で編集なしに流した件は、候補をすべて個人情報とみなしただけ）
+            {"added": [s.model_dump() for s in added], "reviewed": not bulk or item.pii_draft is not None},
         )
         updated = self._apply_pii(item, checked, self.store.settings(), force_block=action == "block", actor="human")
         # 仕分けはワーカーに任せる（Jev の呼び出しを画面の操作から切り離す）

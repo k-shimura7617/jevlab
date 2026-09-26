@@ -106,6 +106,7 @@ flowchart LR
 | `simulator.py` | デモの受信（`demo_inbox.jsonl` の 64 件を一定間隔で流す） |
 | `tuning.py` | 閾値の調整（正解の分かっている件から、閾値ごとの自動処理率と誤り率を出して提案する） |
 | `misses.py` | 検知漏れの報告の集計。「候補外に残っている可能性」の閾値をどこまで下げれば見逃しの何割を拾えたかと、増える確認の件数を出す |
+| `pii_eval.py` | 個人情報の判定（Kev）の混同行列。人が確認した件だけで、候補ごとと「候補外の残り」を集計する |
 | `sla.py` | エスカレーションの対応目安。営業時間（曜日・時刻・休業日）だけを数える |
 | `slack.py` | 実際の Slack とのつなぎ込み（Socket Mode）。投稿の転送・エスカレーションのスレッド・対応目安前の知らせ・受信の取り込み（[ADR-0013](adr/0013-slack-socket-mode.md)） |
 | `api.py` | `/api/ops/*` の API |
@@ -223,6 +224,7 @@ flowchart TD
 | `POST /api/ops/ingest`、`/chat`、`/import` | 受信（手入力・チャット・CSV） |
 | `POST /api/ops/items/{id}/pii`、`PUT /items/{id}/pii/draft` | 個人情報の確定・下書きの保存 |
 | `POST /api/ops/items/{id}/miss`、`GET /misses` | 検知漏れの報告・その集計 |
+| `GET /api/ops/pii-eval` | 個人情報の判定の混同行列（人が確認した件だけ） |
 | `POST /api/ops/items/{id}/decide`、`/assign`、`/note`、`/close`、`/retry` | 人の操作（`/close` はエスカレーション中と振り分け済みの件） |
 | `POST /api/ops/bulk/pii`、`/bulk/assign` | まとめて処理（件ごとに成否を返す） |
 | `GET /api/ops/assignment` | 担当者の推定の当たり具合 |

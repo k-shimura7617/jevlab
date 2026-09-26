@@ -343,6 +343,21 @@ export interface MissSummary {
   review_suggested: number
 }
 
+/** 行: モデル（個人情報とした / しなかった）、列: 人（個人情報 / でない）。 */
+export interface PiiMatrix {
+  tp: number
+  fp: number
+  fn: number
+  tn: number
+}
+
+export interface PiiEval {
+  items: number
+  candidates: PiiMatrix
+  leftover: PiiMatrix
+  leftover_threshold: number
+}
+
 export const ops = {
   meta: () => call<Meta>('GET', '/meta'),
   overview: () => call<Overview>('GET', '/overview'),
@@ -365,6 +380,7 @@ export const ops = {
   reportMiss: (id: string, type: PiiType, start: number, end: number) =>
     call<MissReport>('POST', itemPath(id, 'miss'), { type, start, end }),
   misses: (catchRate: number) => call<MissSummary>('GET', `/misses?catch=${catchRate}`),
+  piiEval: () => call<PiiEval>('GET', '/pii-eval'),
   settings: () => call<Settings>('GET', '/settings'),
   putSettings: (s: Settings) => call<Settings>('PUT', '/settings', s),
   simulator: (c: { playing?: boolean; interval_s?: number; step?: boolean; rewind?: boolean }) =>
