@@ -61,8 +61,8 @@ async def tone_meta() -> ToneMeta:
 
 class ToneRequest(BaseModel):
     text: tone.NonBlank
-    recipient: tone.Recipient = "colleague"
-    medium: tone.Medium = "chat"
+    recipient: tone.Recipient = "none"
+    medium: tone.Medium = "none"
 
 
 @router.post("/tone")

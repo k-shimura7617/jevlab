@@ -1,8 +1,9 @@
 // ツール（言い方チェック）の API（src/jevlab/tools/api.py）
 import { ApiError, detailOf, type Mode } from '../api'
 
-export type Recipient = 'boss' | 'colleague' | 'subordinate' | 'client' | 'customer' | 'friend' | 'family'
-export type Medium = 'chat' | 'mail'
+// none は「指定なし」（一般的なビジネスの相手・場面として判定する）
+export type Recipient = 'boss' | 'colleague' | 'subordinate' | 'client' | 'customer' | 'friend' | 'family' | 'none'
+export type Medium = 'chat' | 'mail' | 'none'
 export type Purpose = 'request' | 'apology' | 'thanks' | 'report' | 'decline' | 'casual'
 export type Group = 'tone' | 'politeness' | 'clarity' | 'apology'
 export type Level = 'ok' | 'warn' | 'bad'
