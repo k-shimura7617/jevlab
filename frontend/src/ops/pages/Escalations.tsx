@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from 'react'
-import { useSearchParams } from 'react-router'
+import { useNavigate, useSearchParams } from 'react-router'
 import { errorMessage } from '../../api'
 import { Page, useTitle } from '../../shell'
 import { ops, type Item } from '../api'
@@ -149,12 +149,18 @@ export function Escalations() {
   )
   const items = sortItems(filtered, 'priority', weights)
   const wanted = params.get('id')
+  // リンク（Slack など）で開いた件が、もうエスカレーション中でない（完了など）ときは、受付箱でその件を開く
+  const gone = list.data !== null && wanted !== null && !all.some((i) => i.id === wanted)
+  const navigate = useNavigate()
+  useEffect(() => {
+    if (gone && wanted) navigate(`/ops/inbox?id=${encodeURIComponent(wanted)}`, { replace: true })
+  }, [gone, wanted, navigate])
   const current = items.find((i) => i.id === wanted) ?? items[0]
   const select = useCallback((id: string) => setParams({ id }, { replace: true }), [setParams])
   // 表示した件を URL に固定する（新着で優先度順が変わっても、書きかけのメモが別の件に切り替わらないように）
   useEffect(() => {
-    if (current && current.id !== wanted) select(current.id)
-  }, [current, wanted, select])
+    if (!gone && current && current.id !== wanted) select(current.id)
+  }, [gone, current, wanted, select])
   const now = useNow()
   // 担当者を選んでいないとき: 選んだ件の集合。選んでいるとき: その人の担当から「外す」件と、新しく「足す」件を別々に持つ
   // （その人の担当の件は、外すと決めない限り選ばれている扱い。後から届いた件も選ばれた状態で並ぶ）

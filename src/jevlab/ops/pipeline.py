@@ -145,6 +145,26 @@ def _stable_unit(seed: str) -> float:
 Route = Literal["routed", "review", "escalated"]
 
 
+# 返信が要る確率がこれ未満なら、返信は要らないとみなす（返信の要否を判定する分類だけ）
+NO_REPLY_BELOW: Final = 0.5
+
+
+def no_reply_reason(item: Item, settings: Settings) -> str | None:
+    """返信が要らない件なら、その理由（完了の記録に書く）。返信が要る件は None。
+
+    返信不要の分類（お礼など）はいつも要らない。返信の要否を判定する分類（その他など）は、Jev の判定で決める。
+    """
+    label = category_label(item.category, settings)
+    if settings.auto_closes(item.category):
+        return f"返信のいらない分類（{label}）"
+    if settings.judges_reply(item.category):
+        view = item.answers.get(oq.REPLY_ID)
+        p = view.value if view is not None else None
+        if p is not None and p < NO_REPLY_BELOW:
+            return f"{label}のうち返信のいらない件（返信が要る確率 {p:.2f}）"
+    return None
+
+
 def decide_route(item: Item, settings: Settings) -> tuple[Route, str]:
     """分類の確信度と業務ルールから、自動振り分け・確認待ち・エスカレーションを決める。"""
     c = settings.classify
@@ -588,9 +608,9 @@ class Pipeline:
                     "system",
                     f"自動で {settings.route_channel(item.category)} へ（{reason}）",
                 )
-                no_reply = settings.auto_closes(item.category)
-                closes = no_reply and not audit
-                if not no_reply:
+                no_reply = no_reply_reason(item, settings)
+                closes = no_reply is not None and not audit
+                if no_reply is None:
                     # 返信の要る件は、担当を割り当てて（届かなければ仮で）Slack でメンションする
                     self._auto_assign(item, settings)
                 self._post_routed(item, by="jevlab（自動）")
@@ -598,9 +618,9 @@ class Pipeline:
                     self.store.add_event(
                         item.id, "audit", "system", f"抜き取り確認の対象に選ばれました（{settings.audit_rate:.0%}）"
                     )
-                elif closes:
+                elif no_reply is not None and closes:
                     # 抜き取り確認に選ばれた件は、人が見るまで完了にしない
-                    self._auto_close(item, settings)
+                    self._auto_close(item, no_reply)
             case "review":
                 self.store.add_event(item.id, "review", "system", f"確認待ちへ（{reason}）")
             case "escalated":
@@ -614,17 +634,14 @@ class Pipeline:
                     item.fields,
                 )
 
-    def _auto_close(self, item: Item, settings: Settings) -> None:
-        """返信のいらない分類（お礼など）を、自動で振り分けたまま完了にする。担当は割り当てない。"""
+    def _auto_close(self, item: Item, reason: str) -> None:
+        """返信のいらない件（お礼など）を、振り分けたまま完了にする。担当は割り当てない。"""
         self.store.update(
             item.id,
             lambda i: i.model_copy(update={"status": "closed", "auto_closed": True, "closed_at": now_iso()}),
         )
-        label = category_label(item.category, settings)
-        # auto: Slack ではスレッドに書き足さず、投稿に ✅ だけ付ける
-        self.store.add_event(
-            item.id, "close", "system", f"返信のいらない分類（{label}）のため自動で完了", {"auto": True}
-        )
+        # auto: Slack では担当を呼ばず、スレッドに完了を書いて ✅ を付ける
+        self.store.add_event(item.id, "close", "system", f"{reason}のため自動で対応完了", {"auto": True})
 
     # ---- 担当者の推定と割り当て ----
 
@@ -834,15 +851,16 @@ class Pipeline:
         )
         kind = "audit" if item.audit and item.status == "routed" else "review"
         self.store.add_event(item_id, kind, "human", f"人が確認: {verb}", {"before": item.category, "after": category})
-        if item.status == "review" and updated.assignee is None and not settings.auto_closes(updated.category):
+        no_reply = no_reply_reason(updated, settings)
+        if item.status == "review" and updated.assignee is None and no_reply is None:
             # 確認で振り分けた件も、返信の要る件なら担当を割り当ててメンションする
             self._auto_assign(updated, settings)
             updated = self.store.get(item_id)
         if item.status == "review" or fixed:
             self._post_routed(updated, by="担当者（確認済み）")
-        if settings.auto_closes(category):
-            # 返信のいらない分類（お礼など）は、確認・抜き取りで確定したら、投稿して ✅ を付けて完了にする
-            self._auto_close(updated, settings)
+        if no_reply is not None:
+            # 返信のいらない件（お礼など）は、確認・抜き取りで確定したら、投稿して完了にする
+            self._auto_close(updated, no_reply)
             updated = self.store.get(item_id)
         return updated
 

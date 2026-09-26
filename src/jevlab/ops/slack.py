@@ -30,7 +30,14 @@ from typing import Final, Literal, Protocol, TypeVar
 from pydantic import BaseModel
 
 from jevlab.ops.models import Event, IngestRequest, Item, Post, Settings, StaffMember
-from jevlab.ops.pipeline import CLOSE_AUTHOR, ESCALATION_CHANNEL, Pipeline, category_label, notes_lines
+from jevlab.ops.pipeline import (
+    CLOSE_AUTHOR,
+    ESCALATION_CHANNEL,
+    Pipeline,
+    category_label,
+    no_reply_reason,
+    notes_lines,
+)
 from jevlab.ops.questions import FIELD_TITLES
 from jevlab.ops.sla import minutes_left
 from jevlab.ops.store import ItemNotFoundError
@@ -52,6 +59,8 @@ _REMIND_EVERY_S: Final = 30.0
 _MAX_BACKOFF_S: Final = 60.0
 # 対応完了の印（親の投稿に付けるリアクション）
 DONE_REACTION: Final = "white_check_mark"
+# 返信のいらない件を自動で完了にしたときに、スレッドに書く文
+AUTO_CLOSE_TEXT: Final = "返信不要のため、自動で対応完了にしました。"
 
 State = Literal["unconfigured", "off", "connecting", "on", "error"]
 
@@ -317,14 +326,15 @@ def left_text(minutes: float) -> str:
     return f"{max(1, int(minutes))} 分（営業時間）"
 
 
-def link_text(item_id: str, settings: Settings) -> str:
-    """件の詳細の画面へのリンク。"""
-    return f"<{settings.slack.app_url.rstrip('/')}/ops/inbox?id={item_id}|画面で開く>"
+def link_text(item_id: str, settings: Settings, channel: str) -> str:
+    """件を開く画面へのリンク。エスカレーションの投稿はエスカレーションの画面、それ以外は受付箱で開く。"""
+    page = "escalations" if channel == ESCALATION_CHANNEL else "inbox"
+    return f"<{settings.slack.app_url.rstrip('/')}/ops/{page}?id={item_id}|画面で開く>"
 
 
 def link_marker(item_id: str) -> str:
-    """親の投稿を Slack 側で探すときの目印（画面へのリンクの一部）。"""
-    return f"/ops/inbox?id={item_id}|"
+    """親の投稿を Slack 側で探すときの目印（画面へのリンクの一部。どの画面へのリンクでも一致する）。"""
+    return f"?id={item_id}|"
 
 
 def mention(member: StaffMember | None) -> str:
@@ -526,14 +536,16 @@ class SlackConnector:
                         if (
                             parent.status == "routed"
                             and not parent.slack_notified
-                            and not settings.auto_closes(parent.category)
+                            and no_reply_reason(parent, settings) is None
                         ):
                             # 返信の要る件は、スレッドで担当（決まっていなければ振り分け担当）をメンションする
                             await self._send(target, assign_line(parent, settings), parent.slack_ts)
                             store.update(parent.id, lambda i: i.model_copy(update={"slack_notified": True}))
                     elif item is not None:
                         # 同じ件の 2 つ目以降の投稿（分類の修正・エスカレーションの完了など）は、リンクを付けて単独で流す
-                        ts = await self._send(target, f"{post_text(post, item)}\n{link_text(item.id, settings)}")
+                        ts = await self._send(
+                            target, f"{post_text(post, item)}\n{link_text(item.id, settings, post.channel)}"
+                        )
                         # 完了したら、この投稿にも ✅ を付けられるよう控えておく
                         self.pipeline.store.update(
                             item.id,
@@ -565,7 +577,7 @@ class SlackConnector:
             ts = await asyncio.to_thread(self._api().find_message, channel, link_marker(item.id))
         if ts is None:
             store.update(item.id, lambda i: i.model_copy(update={"slack_parent_pending": True}))
-            ts = await self._send(channel, f"{post_text(post, item)}\n{link_text(item.id, settings)}")
+            ts = await self._send(channel, f"{post_text(post, item)}\n{link_text(item.id, settings, post.channel)}")
         return store.update(
             item.id,
             lambda i: i.model_copy(update={"slack_channel": channel, "slack_ts": ts, "slack_parent_pending": False}),
@@ -609,9 +621,14 @@ class SlackConnector:
             return
         for event in store.events_after(cursor):
             if event.kind == "close" and event.data.get("auto") is True:
-                # 自動で完了にした件は、スレッドに書き足さず、投稿に ✅ だけ付ける
+                # 自動で完了にした件は、担当を呼ばず、スレッドに完了を書いて ✅ を付ける
                 auto_item = self._item(event.item_id)
-                if auto_item is not None:
+                if auto_item is not None and auto_item.slack_ts and auto_item.slack_channel:
+                    try:
+                        await self._send(auto_item.slack_channel, AUTO_CLOSE_TEXT, auto_item.slack_ts)
+                    except SlackSendError as e:
+                        if self._failed(e):
+                            return
                     await self._mark_done(auto_item)
                 store.put_meta(_EVENT_CURSOR, str(event.id))
                 continue

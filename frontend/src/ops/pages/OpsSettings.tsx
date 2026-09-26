@@ -279,7 +279,8 @@ export function OpsSettings() {
                 <th>説明（Jev が読む）</th>
                 <th>チャンネル</th>
                 <th>使う</th>
-                <th title="返信のいらない分類。自動で振り分けた件は、投稿して ✅ を付け、完了にする">返信不要</th>
+                <th>返信不要</th>
+                <th>返信の要否を判定</th>
                 <th>受け皿</th>
                 <th />
               </tr>
@@ -311,6 +312,15 @@ export function OpsSettings() {
                       aria-label={`${x.label}は返信不要`}
                       checked={x.auto_close}
                       onChange={(e) => setCat(x.key, { auto_close: e.target.checked })}
+                    />
+                  </td>
+                  <td>
+                    <input
+                      type="checkbox"
+                      aria-label={`${x.label}は返信の要否を判定`}
+                      checked={x.judge_reply && !x.auto_close}
+                      disabled={x.auto_close}
+                      onChange={(e) => setCat(x.key, { judge_reply: e.target.checked })}
                     />
                   </td>
                   <td>
@@ -347,14 +357,16 @@ export function OpsSettings() {
           type="button"
           disabled={draft.categories.filter((x) => x.active).length >= MAX_ACTIVE}
           onClick={() =>
-            set((s) => ({ ...s, categories: [...s.categories, { key: `cat-${Date.now().toString(36)}`, label: '', criteria: '', channel: '#', active: true, auto_close: false }] }))
+            set((s) => ({ ...s, categories: [...s.categories, { key: `cat-${Date.now().toString(36)}`, label: '', criteria: '', channel: '#', active: true, auto_close: false, judge_reply: false }] }))
           }
         >
           ＋ 分類を追加
         </button>
         {catError && <div className="error small">{catError}</div>}
         <p className="note">
-          返信不要: 自動で振り分けた件を、Slack に投稿して ✅ を付け、完了にします。
+          返信不要: 自動で振り分けた件を Slack に投稿し、完了を書いて ✅ を付けます。
+          <br />
+          返信の要否を判定: 件ごとに Jev が判定し、返信の要らない件は返信不要と同じく完了にします。返信の要る件は担当をメンションします。
           <br />
           説明を変えると、閾値の調整は変えた後の件だけで数えます。
         </p>

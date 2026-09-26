@@ -383,12 +383,20 @@ class CategoryDef(BaseModel):
     # 返信のいらない分類（お礼など）。自動で振り分けた件は、投稿したうえで自動で完了にする
     auto_close: bool = False
 
+    # 返信が要るかを件ごとに Jev に判定させる分類（その他など、返信の要るものと要らないものが混ざる）。
+    # 要らないと判定した件は、返信不要の分類と同じく自動で完了にする
+    judge_reply: bool = False
+
     @model_validator(mode="before")
     @classmethod
-    def _thanks_needs_no_reply(cls, data: object) -> object:
-        # 「返信不要」を足す前に保存した設定では項目がない。お礼は返信不要として読む
-        if isinstance(data, dict) and "auto_close" not in data and data.get("key") == "thanks":
-            return {**data, "auto_close": True}
+    def _defaults_for_saved_settings(cls, data: object) -> object:
+        # 項目を足す前に保存した設定では項目がない。お礼は返信不要、その他は返信の要否を判定として読む
+        if not isinstance(data, dict):
+            return data
+        if "auto_close" not in data and data.get("key") == "thanks":
+            data = {**data, "auto_close": True}
+        if "judge_reply" not in data and data.get("key") == "other":
+            data = {**data, "judge_reply": True}
         return data
 
 
@@ -400,7 +408,12 @@ def _default_categories() -> list[CategoryDef]:
         raise TypeError("メール仕分けの分類の説明が、キーごとの形ではありません")
     return [
         CategoryDef(
-            key=k, label=label, criteria=str(criteria[k]), channel=_DEFAULT_CHANNELS[k], auto_close=k == "thanks"
+            key=k,
+            label=label,
+            criteria=str(criteria[k]),
+            channel=_DEFAULT_CHANNELS[k],
+            auto_close=k == "thanks",
+            judge_reply=k == "other",
         )
         for k, label in CATEGORY_LABELS.items()
     ]
@@ -470,6 +483,10 @@ class Settings(BaseModel):
     def auto_closes(self, key: str | None) -> bool:
         """返信のいらない分類として、自動で振り分けた件を自動で完了にするか。"""
         return any(c.key == key and c.active and c.auto_close for c in self.categories)
+
+    def judges_reply(self, key: str | None) -> bool:
+        """返信が要るかを件ごとに判定する分類か。"""
+        return any(c.key == key and c.active and c.judge_reply and not c.auto_close for c in self.categories)
 
     def route_channel(self, key: str | None) -> str:
         """分類の振り分け先。知らない分類は受け皿の分類のチャンネル。"""

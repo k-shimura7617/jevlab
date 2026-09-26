@@ -133,3 +133,13 @@ def test_settings_saved_before_auto_close_treat_thanks_as_no_reply() -> None:
     for c in saved["categories"]:
         del c["auto_close"]
     assert [c.key for c in Settings.model_validate(saved).categories if c.auto_close] == ["thanks"]
+
+
+def test_other_judges_whether_a_reply_is_needed_by_default() -> None:
+    s = Settings()
+    assert [c.key for c in s.categories if c.judge_reply] == ["other"]
+    saved = s.model_dump()
+    for c in saved["categories"]:
+        del c["judge_reply"]
+    assert Settings.model_validate(saved).judges_reply("other")
+    assert "needs_reply" in oq.classify_questions({}, s.categories)
