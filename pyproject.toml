@@ -1,0 +1,30 @@
+[project]
+name = "jevlab"
+version = "0.1.0"
+description = "TypeSafe Jev の検証用アプリ集"
+authors = [
+    { name = "k-shimura7617", email = "shimura.kyohei7617@gmail.com" }
+]
+requires-python = ">=3.12"
+dependencies = [
+    "fastapi>=0.141.1",
+    "slack-sdk>=3.44.1",
+    "typesafe-sdk>=0.7.1",
+    "uvicorn[standard]>=0.54.0",
+]
+
+[build-system]
+requires = ["uv_build>=0.9.17,<0.10.0"]
+build-backend = "uv_build"
+
+[dependency-groups]
+dev = [
+    "pytest>=9.1.1",
+    "ruff>=0.16.9",
+]
+
+[tool.ruff]
+line-length = 120
+
+[tool.ruff.lint]
+extend-select = ["I", "UP", "B"]

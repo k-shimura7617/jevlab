@@ -1,0 +1,268 @@
+# アーキテクチャ
+
+> 対象: 2026-09-26 時点のコード（`src/jevlab`、`frontend/src`）。コードを変えたら、区切りでこの文書も更新する。
+
+## 1. システムの全体像
+
+jevlab は 1 つの FastAPI サーバと、それが配信する React の画面でできています。判定は 3 つの接続先を切り替えて使います。
+
+| 接続先 | 中身 | 課金 | 用途 |
+| --- | --- | --- | --- |
+| `jev` | TypeSafe の Jev API（`https://api.typesafe.ai`） | あり（入力トークンのみ） | 本番想定の判定 |
+| `custom` | Kev（Jev 互換のローカルサーバ。既定 `http://127.0.0.1:8009`、CPU 実行） | なし | 閉域・個人情報の判定・比較 |
+| `mock` | API を呼ばず、HTTP 層で決まった答えを返す | 模擬料金だけ記録 | 開発・テスト・デモ |
+
+```mermaid
+flowchart LR
+  subgraph Browser["ブラウザ（127.0.0.1）"]
+    UI["React 画面<br/>評価 / 運用 / ツール"]
+  end
+  subgraph Server["jevlab サーバ（FastAPI, 127.0.0.1:8000）"]
+    API["API ルータ<br/>/api, /api/ops, /api/tools"]
+    Worker["処理ワーカー<br/>（非同期タスク）"]
+    Sim["受信シミュレータ"]
+    Store[("SQLite<br/>var/ops.db")]
+    Usage[("使用量 JSONL<br/>var/usage*.jsonl")]
+  end
+  Jev["Jev API<br/>（課金）"]
+  Kev["Kev<br/>（ローカル）"]
+  Claude["claude -p<br/>（サブスク枠）"]
+  UI -- "fetch /api/*" --> API
+  API --> Store
+  Sim --> Store
+  Worker --> Store
+  Worker -- "マスク済みの本文だけ" --> Jev
+  Worker -- "元の本文（個人情報の判定）" --> Kev
+  API -- "書き換え案" --> Claude
+  API --> Usage
+  Worker --> Usage
+```
+
+- API キーはサーバ側だけで扱い、ブラウザには渡しません。
+- サーバは `127.0.0.1` だけで待ち受けます（外部から接続できない）。
+
+## 2. 構成要素
+
+### 2.1 サーバの入口 — `src/jevlab/web.py`
+
+- **lifespan（起動と停止）**
+  - 接続先ごとに SDK のクライアントと使用量の記録（`Ledger`）を作ります。
+  - 運用用の `Store`（SQLite）と `Pipeline` を作ります。
+  - **処理ワーカー**と**受信シミュレータ**を非同期タスクとして動かします。
+  - 停止時はタスクを取り消し、処理中の件は次回起動時に「処理待ち」へ戻ります。
+- **接続先の選択**
+  - 各 API は `?target=jev|custom|mock` で接続先を選びます。
+  - 省略時は環境変数 `JEVLAB_DEFAULT_TARGET` で決まる既定の接続先を使います。
+  - Jev は `TYPESAFE_API_KEY` があるときだけ有効です。
+- **画面の配信**
+  - `frontend/` の Vite ビルド出力（`src/jevlab/static/`）を `/static` で配信します。
+  - 画面のパス（`/`、`/apps/*`、`/ops/*`、`/tools/*`）には `index.html` を返します（SPA）。
+
+### 2.2 共通部品 — `src/jevlab/core/`
+
+| モジュール | 役割 |
+| --- | --- |
+| `target.py` | 接続先の決定（環境変数だけで決まる）。Kev の URL・鍵、Jev が使えるかの判定 |
+| `client.py` | 接続先ごとのクライアント生成。モックの応答。予算チェック付きの呼び出し `judge()` |
+| `budget.py` | 使用量の記録（JSONL）と予算ガード。料金は入力トークン $0.042 / 100 万。上限は `JEVLAB_BUDGET_USD`（既定 $1）。Jev の累計は `var/usage.jsonl`、他は `usage.<target>.jsonl` |
+| `engine.py` | 評価アプリの定義（`AppSpec`）、判定結果の共通形（`AnswerView`）、評価（正解率・Brier・ECE・信頼度図） |
+| `metrics.py` | 評価指標の計算 |
+| `runs.py` | 評価結果の保存（`var/runs.jsonl`） |
+| `generator.py` | 文章の生成器（`Generator` の型）。いまは `claude -p` を子プロセスで呼ぶ実装だけ（[ADR-0009](adr/0009-claude-cli-generator.md)） |
+
+### 2.3 評価アプリ — `src/jevlab/apps/`
+
+1 アプリ = 質問の定義（`questions.py`）＋画面の表示名と正解データ（`spec.py`、`dataset.jsonl`）です。
+
+| アプリ | 内容 |
+| --- | --- |
+| mail | 雑貨店のメール 100 通の仕分け（分類・不満度・緊急度）。運用ダッシュボードの分類もこの質問を使う |
+| triage | SaaS への問い合わせの部署・怒り度・返金要求・緊急度 |
+| incident | 障害第一報の重大度・原因箇所・顧客影響 |
+| moderation | 掲示板投稿の誹謗中傷・個人情報・宣伝・危険行為 |
+| commit | コミットの種別・破壊的変更・影響 |
+| contract | 利用規約の条項リスク |
+| slop | SNS 投稿の「スロップ」検知 |
+| rewrite | 書き換えで意味が保たれているか |
+
+評価ダッシュボードでは、同じデータを Jev / Kev / モックで判定して、正解率と較正（確信度の当たり具合）を並べて比べられます。
+
+### 2.4 運用（受付箱） — `src/jevlab/ops/`
+
+| モジュール | 役割 |
+| --- | --- |
+| `models.py` | 件（`Item`）、経過（`Event`）、投稿（`Post`）、設定（`Settings`）の型 |
+| `store.py` | SQLite への保存。1 本の接続をロックで守り、読み出し・変更・保存を 1 トランザクションで行う（`update`）。番号は受付箱を空にしても戻さない |
+| `pii.py` | 個人情報の候補を規則（正規表現と語彙）で拾う・マスクする |
+| `questions.py` | 個人情報・仕分け・優先度・項目抽出・担当者の推定の質問 |
+| `pipeline.py` | 1 件の処理の流れと、人の操作（確認・割り当て・完了） |
+| `simulator.py` | デモの受信（`demo_inbox.jsonl` の 64 件を一定間隔で流す） |
+| `tuning.py` | 閾値の調整（正解の分かっている件から、閾値ごとの自動処理率と誤り率を出して提案する） |
+| `api.py` | `/api/ops/*` の API |
+
+### 2.5 ツール — `src/jevlab/tools/`
+
+- `tone.py`: 言い方チェックの質問と、判定のまとめ方を定義します。
+  - 観点を 4 つのまとまりで判定します（伝わり方・丁寧さ・分かりやすさ・謝罪）。
+  - 文面の目的と、受け取る印象も判定します。
+  - 文ごとに、きつさを判定します。
+  - Claude に書き換え案を頼むときのプロンプトもここに置いています。
+- `api.py`: `/api/tools/tone*` の API です。
+  - 判定は選んだ接続先で行います。
+  - 書き換え案は生成器（Claude）で作ります。
+
+### 2.6 画面 — `frontend/src/`
+
+- Vite 8、React 19、TypeScript（strict）、react-router 8 で作っています。
+- `npm run build` の出力は `src/jevlab/static/` に置かれ、FastAPI がそのまま配信します（[ADR-0011](adr/0011-single-repo-vite-build.md)）。
+- 画面のまとまり:
+  - 評価ダッシュボード: `/`、`/apps/:name`、`/apps/:name/run`
+  - 運用ダッシュボード: `/ops`、`/ops/inbox|pii|review|escalations|channels|staff|connectors|tuning|settings`、`/ops/items/:id`
+  - ツール: `/tools/tone`
+- 運用の画面は 1.5 秒間隔のポーリングで更新します（`ops/state.tsx` の `usePolling`）。
+
+## 3. 1 件の流れ
+
+```mermaid
+flowchart TD
+  In["受信<br/>メール / チャット / CSV / API / シミュレータ"] --> Q["処理待ち（queued）"]
+  Q --> G{"個人情報のガード<br/>規則で候補 → 氏名などだけ Kev が判定"}
+  G -- "個人情報あり・迷いあり<br/>（人の確認がオン）" --> P["個人情報の確認（pii_review）<br/>人がマスク / ブロックを決める"]
+  G -- "なし・方針どおり自動" --> M["マスク済みの本文（sent_text）"]
+  P -- "マスクして仕分けへ" --> M
+  P -- "ブロック" --> B{"ブロックした件の扱い"}
+  G -- "ブロック方針の種類あり" --> B
+  B -- "人に回す" --> E
+  B -- "Kev だけで仕分け" --> KV["Kev で分類"]
+  M --> C["分類・優先度・項目抽出・担当の推定<br/>（Jev、または Kev 前段で確定）"]
+  C --> R{"確信度と業務ルール"}
+  R -- "確信度 ≥ 自動の閾値" --> RT["振り分け（routed）<br/>チャンネルへ投稿<br/>一部を抜き取り確認"]
+  R -- "中間" --> RV["分類の確認（review）<br/>人が確定"]
+  R -- "低い / 強い不満 / 緊急" --> E["エスカレーション（escalated）<br/>担当の推定・自動割り当て"]
+  RV --> RT
+  E --> CL["完了（closed）<br/>分類のチャンネルへ投稿"]
+  KV --> R
+```
+
+要点:
+
+1. **Jev に元の本文は送りません。**
+   - 送るのは `sent_text`（方針どおりマスクした本文）だけです。
+   - 個人情報の判定は、元の本文を読む必要があるため Kev（ローカル）で行います（[ADR-0002](adr/0002-kev-pii-guardrail.md)）。
+2. **形で決まる個人情報は規則で確定します。** 電話・メール・郵便番号・住所・カード・口座・生年月日がこれに当たります。モデルに聞くのは、規則で決めきれない氏名の候補と、「候補以外に個人情報が残っていないか」の 2 種類だけです。
+3. **1 回の問い合わせにまとめます。** 分類・不満度・緊急度・返金・公にする可能性・項目の抽出（注文番号・期限・金額）・担当者の推定は、独立した質問なので 1 回の問い合わせで並列に判定します。
+4. **振り分けの決め方** — `pipeline.decide_route` で次の順に決めます。
+   - 強い不満・緊急なら、確信度に関係なく人（エスカレーション）に回します。
+   - それ以外は確信度で分けます。自動の閾値（分類ごとに上書きできる）以上なら振り分け、確認の閾値以上なら「分類の確認」、それ未満ならエスカレーションです。
+5. **優先度は、判定した値から画面側で計算します。** 観点ごとの値（0〜1）を重み付きで平均します。重みを変えても判定し直す必要はありません（[ADR-0006](adr/0006-priority-in-code.md)）。
+6. **振り分けた件の一部を抜き取り、人が確認します**（既定 5%）。正誤の実績は閾値の調整に使います（[ADR-0007](adr/0007-human-in-the-loop-queues.md)）。
+
+## 4. データモデル
+
+`var/ops.db`（SQLite）の 4 つの表:
+
+| 表 | 中身 |
+| --- | --- |
+| `items` | 件。`id`・`seq`・`status` は列、それ以外は JSON（`data`） |
+| `events` | 件ごとの経過（受信・ガード・分類・振り分け・人の操作）。画面のタイムラインになる |
+| `posts` | 疑似 Slack への投稿 |
+| `settings` | 運用の設定（JSON 1 行）と、番号の続き（`last_seq`） |
+
+`Item` の主な項目（`ops/models.py`）:
+
+| 項目 | 意味 |
+| --- | --- |
+| `status` | `queued` → `processing` →（`pii_review`）→ `review` / `escalated` / `routed` → `closed`（失敗は `error`） |
+| `text` | 判定に使う文（「件名: …」＋本文）。個人情報の位置はこの文字列の中の位置 |
+| `pii` | 個人情報の候補（`Span`: 位置・種類・出どころ（規則 / 人）・モデルの確率・確定したか） |
+| `pii_leftover` | 候補以外に個人情報が残っている確率 |
+| `pii_draft` | 人が確認画面で編集中の内容（未確定の下書き。[ADR-0010](adr/0010-server-side-pii-draft.md)） |
+| `pii_decision` | `none` / `masked` / `allowed` / `blocked` / `skipped` |
+| `sent_text` | 外部（Jev）に送った本文。送っていなければ `null` |
+| `answers` | 質問ごとの判定（`AnswerView`: 予測・値・確信度・確率） |
+| `category` / `confidence` / `decided_by` | 分類・確信度・誰が決めたか（jev / kev / mock / human） |
+| `fields` | 抽出した項目（注文番号・期限・金額） |
+| `assignee` / `assigned_by` / `auto_assigned` | 担当者・割り当てた主体・一度でも自動で割り当てたか |
+| `assign_suggestion` / `assign_confidence` | モデルが推定した担当と確信度（割り当てなかった場合も残す） |
+| `audit` / `audit_result` | 抜き取り確認の対象か・結果 |
+| `expected` | デモデータの想定ラベル（評価用。実運用には無い） |
+
+## 5. API の一覧
+
+| パス | 内容 |
+| --- | --- |
+| `GET /api/status` | 接続先ごとの状態（使えるか・累計額・上限） |
+| `GET /api/apps`、`/api/apps/{name}`、`/samples` | 評価アプリの一覧・定義・例 |
+| `POST /api/apps/{name}/judge`、`/samples/{id}/judge`、`/evaluate`、`/summary` | 判定・評価 |
+| `GET /api/runs/latest`、`/api/apps/{name}/runs` | 評価の記録 |
+| `GET /api/ops/meta`、`/overview`、`/items`、`/items/{id}` | 運用の定義・集計・件 |
+| `POST /api/ops/ingest`、`/chat`、`/import` | 受信（手入力・チャット・CSV） |
+| `POST /api/ops/items/{id}/pii`、`PUT /items/{id}/pii/draft` | 個人情報の確定・下書きの保存 |
+| `POST /api/ops/items/{id}/decide`、`/assign`、`/note`、`/close`、`/retry` | 人の操作 |
+| `POST /api/ops/bulk/pii`、`/bulk/assign` | まとめて処理（件ごとに成否を返す） |
+| `GET /api/ops/assignment` | 担当者の推定の当たり具合 |
+| `GET/PUT /api/ops/settings` | 運用の設定 |
+| `POST /api/ops/simulator`、`/reset`、`GET /posts`、`/tuning` | シミュレータ・初期化・投稿・閾値の調整 |
+| `GET /api/tools/tone/meta`、`POST /api/tools/tone`、`/tone/rewrite` | 言い方チェック |
+
+エラーの返し方:
+
+| ステータス | 意味 |
+| --- | --- |
+| 404 | 件がない |
+| 409 | 予算の上限・コネクタが切断されている |
+| 422 | 入力や状態の不正 |
+| 502 | 判定・生成の失敗 |
+
+## 6. 設定（`Settings`）
+
+| まとまり | 主な項目 | 既定 |
+| --- | --- | --- |
+| `guard` | 有効・判定の接続先（Kev / モックのみ。Jev は選べない）・人の確認・候補の閾値・残りの閾値・種類ごとの方針（検出のみ / マスク / ブロック）・ブロックした件の扱い | Kev、人の確認あり、0.3、0.5、カード・口座はブロック、他はマスク |
+| `classify` | 接続先・自動の閾値・確認の閾値・分類ごとの閾値・強い不満 / 緊急をエスカレーションするか | Jev、0.9、0.5 |
+| `kev_first` | Kev の確信度が十分なら Jev を呼ばずに確定する | 無効、0.95 |
+| `assign` | 自動割り当て・その閾値・対応例を渡すか・例の数 | 有効、0.7、渡す、3 |
+| `staff` | 担当者（ID・名前・所属・担当範囲） | 4 人のデモ担当者 |
+| `priority_weights` | 優先度の重み | 不満 1.0 / 緊急 1.5 / 返金 0.8 / 公にする 1.2 |
+| `audit_rate`、`connectors`、`simulator` | 抜き取りの割合・コネクタの接続・シミュレータ | 5%、すべて接続 |
+
+主な環境変数:
+
+| 変数 | 意味 |
+| --- | --- |
+| `JEVLAB_DEFAULT_TARGET` | 既定の接続先 |
+| `JEVLAB_BUDGET_USD` | 予算の上限 |
+| `JEVLAB_VAR_DIR` | データの置き場所（既定 `var/`） |
+| `KEV_URL`、`KEV_TIMEOUT_S` | Kev の接続先・タイムアウト（既定 120 秒） |
+| `JEVLAB_GENERATOR` | 生成器の種類（いまは `claude-cli` だけ） |
+| `JEVLAB_CLAUDE_USE_API_KEY=1` | `claude -p` に API キーを渡して API 課金で動かす |
+
+## 7. 安全の境界
+
+| 守るもの | 仕組み |
+| --- | --- |
+| **元の本文を Jev に送らない** | Jev に送るのは `sent_text` だけ（`_classify_and_route` は `sent_text` がないと例外）。個人情報の判定の接続先は型で Kev / モックに限定（`GuardTarget`）。ブロックした件は Jev を通さない |
+| **マスクの漏れを防ぐ** | 重なった候補は結合してから伏せる。方針にない種類は安全側（マスク）。規則で確定した構造的な個人情報は、画面から外されてもサーバ側で戻す（送られてきた内容をそのまま信じない）。一括処理では未確定の候補もマスク |
+| **外に出る見出しから漏らさない** | チャンネル投稿・担当の対応例の見出し（`safe_title`）は、未確定を含むすべての候補を伏せる。対応例は「送ってよいと判断済み」かつ「人が割り当てた」件だけ |
+| **秘密情報** | 鍵は `.env` に置き、起動時に `uv run --env-file .env` で環境変数として読む。コードは `.env` を直接読まない。鍵はブラウザに返さない |
+| **ネットワーク** | サーバは `127.0.0.1` だけで待ち受ける |
+| **`claude -p` の子プロセス** | `TYPESAFE_*`・`KEV_*`・`ANTHROPIC_API_KEY` を環境変数から外して起動（サブスク枠で動かし、jevlab の鍵を渡さない）。空の一時ディレクトリで起動し、ツールや MCP は無効 |
+| **課金** | 呼ぶ前に予算の見込みを確認し、上限を超えるなら拒否（409）。空白だけの文面は判定しない |
+| **データ** | デモデータはすべて架空 |
+
+## 8. テストの方針
+
+- **単体テスト**
+  - 質問の組み立て、個人情報の規則とマスク、振り分けと優先度、閾値の調整、言い方チェックのまとめ方を確かめます。
+  - 判定結果は、固定した `AnswerView` を入力にして確かめます。
+- **API テスト**
+  - `TestClient` をモック接続で動かし、実際のワーカーで件を処理させて状態の遷移を確かめます（`settle()` で処理の完了を待つ）。
+  - 手元で Kev が動いていても結果が変わらないよう、`KEV_URL` は接続できない宛先にします（`tests/conftest.py`）。
+- **生成器のテスト:** 偽の生成器に差し替え、`claude` は呼びません。
+- **画面の確認**
+  - Playwright で、別ポートの試験用サーバ（モック）を操作して確かめます。
+  - 項目: 主な操作、狭い画面、ダークモード、コンソールエラー。
+- **レビューで見つかった不具合:** 再現するテストを必ず足します（例: 一括処理で氏名が漏れる、担当の例に伏せていない件名が載る）。
+- **実行するコマンド**
+  - バックエンド: `uv run pytest -q`、`uv run ruff check`
+  - 画面: `npx tsc -b`、`npm run lint`、`npm run build`

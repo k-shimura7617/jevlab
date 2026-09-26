@@ -1,0 +1,39 @@
+<!doctype html>
+<html lang="ja">
+  <head>
+    <meta charset="UTF-8" />
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>jevlab</title>
+  </head>
+  <body>
+    <div id="root"></div>
+    <script>
+      // 見張り: 数秒たっても画面が何も描かれない（起動の JS が読めなかった）ときは、1 回だけ再読み込みする。
+      // 続けて起きたら再読み込みはせず、案内を出す（無限に再読み込みしないように）
+      setTimeout(function () {
+        var root = document.getElementById('root')
+        if (!root || root.childElementCount > 0) return
+        var key = 'jevlab.bootReloadAt'
+        var last = 0
+        try {
+          last = Number(sessionStorage.getItem(key) || 0)
+        } catch (e) {
+          console.error('再読み込みの記録を読めませんでした', e)
+        }
+        if (Date.now() - last > 30000) {
+          try {
+            sessionStorage.setItem(key, String(Date.now()))
+          } catch (e) {
+            console.error('再読み込みの記録を保存できませんでした', e)
+          }
+          location.reload()
+          return
+        }
+        root.innerHTML =
+          '<div class="fatal" role="alert"><h1>画面を読み込めませんでした。</h1><p>Ctrl+Shift+R で再読み込みしてください。</p></div>'
+      }, 4000)
+    </script>
+    <script type="module" src="/src/main.tsx"></script>
+  </body>
+</html>

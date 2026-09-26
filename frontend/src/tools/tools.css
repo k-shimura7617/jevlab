@@ -1,0 +1,69 @@
+/* ツール（言い方チェック） */
+.tone-layout { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1.15fr); gap: 16px; align-items: start; }
+@media (max-width: 1000px) { .tone-layout { grid-template-columns: 1fr; } }
+.tone-layout > .panel { margin: 8px 0; }
+.tone-input textarea { min-height: 150px; font-size: 15px; line-height: 1.7; }
+.tone-empty { min-height: 200px; display: grid; place-items: center; text-align: center; }
+h2.inline { margin: 0; }
+.verdict-banner { display: flex; flex-wrap: wrap; align-items: baseline; gap: 10px; padding: 10px 14px; border-radius: 8px; margin-bottom: 8px; font-size: 14px; }
+.verdict-banner .verdict-label { font-size: 18px; font-weight: 800; }
+.verdict-ok .verdict-banner { background: var(--ok-soft); color: var(--ok); }
+.verdict-review .verdict-banner { background: var(--warn-soft); color: var(--warn); }
+.verdict-caution .verdict-banner { background: var(--ng-soft); color: var(--ng); }
+.tone-meta { display: flex; flex-wrap: wrap; gap: 8px 20px; align-items: center; margin: 4px 0 8px; }
+.tone-meta select { margin-left: 6px; }
+.imp-positive { color: var(--ok); } .imp-neutral { color: var(--text); } .imp-uneasy { color: var(--warn); } .imp-offended { color: var(--ng); }
+.aspect-group h3 { margin: 12px 0 6px; }
+.aspects { display: grid; grid-template-columns: repeat(auto-fit, minmax(190px, 1fr)); gap: 8px; }
+.aspect { border: 1px solid var(--line); border-left: 4px solid var(--ok); border-radius: 8px; padding: 8px 10px; background: var(--panel); }
+.aspect.lv-warn { border-left-color: var(--warn); }
+.aspect.lv-bad { border-left-color: var(--ng); }
+.aspect-head { display: flex; justify-content: space-between; gap: 6px; font-size: 13px; font-weight: 700; }
+.lv-tag { font-size: 11px; font-weight: 700; padding: 0 6px; border-radius: 4px; white-space: nowrap; }
+.lv-tag.lv-ok { background: var(--ok-soft); color: var(--ok); }
+.lv-tag.lv-warn { background: var(--warn-soft); color: var(--warn); }
+.lv-tag.lv-bad { background: var(--ng-soft); color: var(--ng); }
+.meter { height: 6px; border-radius: 999px; background: var(--bg); overflow: hidden; margin: 6px 0 2px; }
+.meter > span { display: block; height: 100%; background: var(--ok); }
+.lv-warn .meter > span { background: var(--warn); }
+.lv-bad .meter > span { background: var(--ng); }
+.sentences { line-height: 2; font-size: 14px; }
+.sent { padding: 1px 2px; border-radius: 3px; background: color-mix(in srgb, var(--ng) calc(var(--heat) * 22%), transparent); }
+.sent.flagged { border-bottom: 2px solid var(--ng); }
+.tone-history ul { margin: 4px 0; padding-left: 18px; font-size: 13px; }
+.tone-history li { display: flex; gap: 8px; align-items: center; }
+.vd { font-size: 11px; font-weight: 700; padding: 0 6px; border-radius: 4px; white-space: nowrap; }
+.vd-ok { background: var(--ok-soft); color: var(--ok); }
+.vd-review { background: var(--warn-soft); color: var(--warn); }
+.vd-caution { background: var(--ng-soft); color: var(--ng); }
+.rewrite textarea { font-size: 15px; line-height: 1.7; }
+.rewrite-notes { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 12px; font-size: 13px; }
+.rewrite-notes ul { margin: 4px 0; padding-left: 18px; }
+.compare td { vertical-align: middle; }
+.delta { font-size: 11px; font-weight: 700; }
+.delta.up { color: var(--ok); }
+.delta.down { color: var(--ng); }
+
+/* 狭い画面では、モデルの選択と作成ボタンを折り返してよい */
+.rewrite .panel-head .row.tight { flex-wrap: wrap; }
+
+/* 広い画面: 入力と結果のカードを同じ高さに固定し、結果が変わっても下（書き換え案）が動かないようにする。
+   入力欄はカードの残りを埋め、結果はカードの中でスクロールする */
+@media (min-width: 1001px) {
+  .tone-layout { align-items: stretch; }
+  .tone-layout > .panel { height: 640px; overflow: auto; }
+  .tone-input { display: flex; flex-direction: column; }
+  .tone-input > * { flex: none; }
+  .tone-input > textarea { flex: 1 1 auto; min-height: 150px; resize: none; }
+}
+.legend-line { margin: -4px 0 4px; }
+/* 文ごとの色分けは高さを決め、中でスクロールする */
+.sentences { height: 150px; overflow: auto; margin: 0; padding: 6px 8px; border: 1px solid var(--line); border-radius: 6px; background: var(--bg); }
+.rewrite textarea { height: 240px; resize: vertical; }
+@media (max-width: 1000px) {
+  .sentences { height: auto; max-height: 220px; }
+  .rewrite textarea { height: auto; min-height: 200px; }
+}
+
+/* 作成中の秒数が 2 桁・3 桁になってもボタンの幅が変わらないようにする */
+.rw-btn { min-width: 10.5em; font-variant-numeric: tabular-nums; }

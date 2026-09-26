@@ -1,0 +1,380 @@
+// 運用（受付箱）の API（src/jevlab/ops/api.py）。型はサーバの pydantic モデルに合わせる
+import type { AnswerView, Mode } from '../api'
+import { ApiError, detailOf } from '../api'
+
+// slack は実際の Slack ワークスペースからの受信。chat は画面上の疑似チャット
+export type Channel = 'mail' | 'chat' | 'csv' | 'api' | 'slack'
+export type Status = 'queued' | 'processing' | 'pii_review' | 'review' | 'escalated' | 'routed' | 'closed' | 'error'
+export type PiiType =
+  | 'person_name'
+  | 'phone'
+  | 'email'
+  | 'postal_code'
+  | 'address'
+  | 'card'
+  | 'bank_account'
+  | 'birthday'
+  | 'sns_account'
+export type PiiAction = 'allow' | 'mask' | 'block'
+export type Decider = 'jev' | 'kev' | 'mock' | 'human'
+export type Route = 'routed' | 'review' | 'escalated'
+
+export interface Span {
+  start: number
+  end: number
+  type: PiiType
+  text: string
+  source: 'rule' | 'human'
+  score: number | null
+  confirmed: boolean
+}
+
+export interface Item {
+  id: string
+  seq: number
+  channel: Channel
+  from_name: string
+  from_address: string
+  subject: string
+  body: string
+  received_at: string
+  status: Status
+  reason: string | null
+  first_route: Route | null
+  text: string
+  pii: Span[]
+  pii_leftover: number | null
+  pii_decision: 'none' | 'masked' | 'blocked' | 'allowed' | 'skipped' | null
+  // 個人情報の確認で人が編集中の内容（サーバに保存した下書き）。まとめて処理するときもこれを使う
+  pii_draft: Span[] | null
+  // エスカレーションの対応目安までの残り（営業時間の分。過ぎていれば負）
+  sla_left_min: number | null
+  // 個人情報のため Jev に送らなかった件の、ローカル（Kev）での参考の判定
+  kev_reference: {
+    category: string | null
+    confidence: number | null
+    assign_suggestion: string | null
+    assign_probability: number | null
+    model: string
+  } | null
+  sent_text: string | null
+  answers: Record<string, AnswerView>
+  category: string | null
+  decided_by: Decider | null
+  confidence: number | null
+  fields: Record<string, string | null>
+  // 担当者の ID（StaffMember.id）
+  assignee: string | null
+  assigned_by: 'auto' | 'human' | null
+  assign_suggestion: string | null
+  assign_confidence: number | null
+  notes: string[]
+  audit: boolean
+  audit_result: 'ok' | 'fixed' | null
+  cost_usd: number
+  error: string | null
+  expected: {
+    category?: string
+    frustration?: number
+    urgent?: boolean
+    pii?: { type: PiiType; text: string }[]
+    order_id?: string | null
+  } | null
+  updated_at: string
+  closed_at: string | null
+  priority: Record<string, number>
+  // 個人情報の確認に回った理由（確認待ちの件だけ）
+  pii_flags: PiiFlag[]
+}
+
+export type PiiFlag = 'detected' | 'possible_name' | 'possible_missed'
+
+export interface StaffMember {
+  id: string
+  name: string
+  role: string
+  scope: string
+  // Slack のユーザー ID（U…）。空なら Slack ではメンションせず名前だけ書く
+  slack_user_id?: string
+}
+
+export interface AssignStats {
+  closed: number
+  with_suggestion: number
+  matched: number
+  auto_assigned: number
+  auto_changed: number
+  pairs: { suggested: string | null; actual: string; count: number }[]
+}
+
+export interface BulkResult {
+  done: string[]
+  errors: Record<string, string>
+}
+
+export type EventKind =
+  | 'received'
+  | 'guard'
+  | 'pii_review'
+  | 'classify'
+  | 'route'
+  | 'review'
+  | 'escalate'
+  | 'assign'
+  | 'note'
+  | 'close'
+  | 'audit'
+  | 'error'
+  | 'retry'
+  | 'miss'
+export type Actor = 'system' | 'kev' | 'jev' | 'mock' | 'human' | 'connector'
+
+export interface OpsEvent {
+  id: number
+  item_id: string
+  at: string
+  kind: EventKind
+  actor: Actor
+  message: string
+  data: Record<string, unknown>
+}
+
+export interface Post {
+  id: number
+  channel: string
+  at: string
+  author: string
+  text: string
+  item_id: string | null
+  fields: Record<string, string | null>
+}
+
+export interface Meta {
+  categories: Record<string, string>
+  statuses: Status[]
+  channels: Record<Channel, string>
+  pii_types: Record<PiiType, string>
+  actions: PiiAction[]
+  fields: Record<string, string>
+  route_channels: Record<string, string>
+  escalation_channel: string
+  inbound_channel: string
+  demo_count: number
+}
+
+export interface Flow {
+  received: number
+  guarded: number
+  pii_found: number
+  pii_review: number
+  masked: number
+  blocked: number
+  classified: number
+  kev_only: number
+  auto: number
+  review: number
+  escalated: number
+  closed: number
+  error: number
+  waiting: number
+}
+
+export interface Accuracy {
+  n: number
+  matched: number
+}
+
+export interface SimulatorState {
+  playing: boolean
+  interval_s: number
+  cursor: number
+  total: number
+}
+
+export interface Overview {
+  counts: Record<Status, number>
+  flow: Flow
+  automation_rate: number | null
+  final_accuracy: Accuracy
+  model_accuracy: Accuracy
+  cost_usd: number
+  audit_pending: number
+  simulator: SimulatorState
+  recent: OpsEvent[]
+  // 設定が Kev を使うときだけ入る
+  kev: { endpoint: string; available: boolean; reason: string | null; uses: string[] } | null
+}
+
+export interface SlackSettings {
+  // 振り分け・エスカレーションの投稿を実際の Slack にも流す
+  outbound: boolean
+  // 疑似チャンネル名 → Slack のチャンネル ID
+  channel_map: Record<string, string>
+  // 受信する Slack のチャンネル ID
+  inbound_channels: string[]
+  // 振り分け担当（当番）の担当者 ID
+  dispatcher: string | null
+  // 投稿に付ける画面へのリンクの起点
+  app_url: string
+  // 担当が決まらないまま対応目安が近づいたら 1 回だけ知らせる
+  reminder: boolean
+  reminder_before_min: number
+}
+
+export type SlackState = 'unconfigured' | 'off' | 'connecting' | 'on' | 'error'
+
+export interface SlackStatus {
+  bot_token: boolean
+  app_token: boolean
+  bot_user: string | null
+  outbound: { state: SlackState; detail: string; count: number; last_error: string | null }
+  inbound: { state: SlackState; detail: string; count: number; last_error: string | null }
+  mirrorable: string[]
+}
+
+export interface Settings {
+  guard: {
+    enabled: boolean
+    // Kev（モデル）で判定するか。false なら規則だけ（氏名の候補はすべて個人情報として扱う）
+    use_model: boolean
+    // マスク前の本文を読むため、外部（Jev）は選べない
+    target: 'custom' | 'mock'
+    human_check: boolean
+    candidate_threshold: number
+    leftover_threshold: number
+    policy: Record<PiiType, PiiAction>
+    blocked_route: 'kev' | 'human'
+  }
+  classify: {
+    target: Mode
+    auto_threshold: number
+    review_threshold: number
+    label_thresholds: Record<string, number>
+    escalate_strong_frustration: boolean
+    // 「強い不満」の確率がこれ以上ならエスカレーション
+    strong_frustration_at: number
+    escalate_urgent: boolean
+    // 分類の上位 2 つの差がこれ未満なら人が確認
+    split_margin: number
+  }
+  kev_first: { enabled: boolean; threshold: number }
+  audit_rate: number
+  // 以前に保存した設定には slack がないことがある（ないときは切断として扱う）
+  connectors: Partial<Record<Channel, boolean>>
+  slack: SlackSettings
+  // エスカレーションの対応目安（営業時間で数える）
+  sla: { hours: number; days: number[]; start: string; end: string; timezone: string; holidays: string[] }
+  simulator: { playing: boolean; interval_s: number; cursor: number }
+  priority_weights: Record<string, number>
+  staff: StaffMember[]
+  assign: { auto: boolean; threshold: number; use_examples: boolean; max_examples: number }
+}
+
+export interface CurvePoint {
+  threshold: number
+  auto: number
+  errors: number
+  auto_rate: number
+  error_rate: number | null
+}
+
+export interface Curve {
+  label: string | null
+  n: number
+  points: CurvePoint[]
+  recommended: number | null
+  note: string
+}
+
+export interface TuningReport {
+  source: 'human' | 'expected'
+  target_error: number
+  n: number
+  overall: Curve
+  by_label: Curve[]
+}
+
+export interface ImportRow {
+  from_name: string
+  from_address: string
+  subject: string
+  body: string
+}
+
+
+async function call<T>(method: 'GET' | 'POST' | 'PUT', path: string, payload?: unknown): Promise<T> {
+  const res = await fetch(`/api/ops${path}`, {
+    method,
+    headers: payload === undefined ? undefined : { 'Content-Type': 'application/json' },
+    body: payload === undefined ? undefined : JSON.stringify(payload),
+  })
+  const data: unknown = await res.json().catch(() => null)
+  if (!res.ok) throw new ApiError(res.status, `HTTP ${res.status}: ${detailOf(data) ?? res.statusText}`)
+  // 応答はサーバの型定義どおりである前提で扱う（同一リポジトリで型を揃えている）
+  return data as T
+}
+
+const itemPath = (id: string, action: string) => `/items/${encodeURIComponent(id)}/${action}`
+
+// ガードレールの見逃しの報告。本文は残さず、位置と長さだけ
+export interface MissReport {
+  id: number
+  item_id: string
+  type: PiiType
+  start: number
+  end: number
+  length: number
+  leftover: number | null
+  at: string
+}
+
+export interface MissSummary {
+  reports: number
+  by_type: Partial<Record<PiiType, number>>
+  leftovers: number[]
+  unscored: number
+  catch: number
+  threshold: number
+  caught_now: number
+  suggested: number | null
+  caught_suggested: number
+  scored_items: number
+  review_now: number
+  review_suggested: number
+}
+
+export const ops = {
+  meta: () => call<Meta>('GET', '/meta'),
+  overview: () => call<Overview>('GET', '/overview'),
+  items: (statuses?: Status[]) =>
+    call<Item[]>('GET', `/items${statuses?.length ? `?${statuses.map((s) => `status=${s}`).join('&')}` : ''}`),
+  item: (id: string) => call<{ item: Item; events: OpsEvent[] }>('GET', `/items/${encodeURIComponent(id)}`),
+  ingest: (body: { channel: Channel; from_name: string; from_address: string; subject: string; body: string }) =>
+    call<Item>('POST', '/ingest', body),
+  chat: (from_name: string, body: string) => call<Item>('POST', '/chat', { from_name, body }),
+  importRows: (file_name: string, rows: ImportRow[]) =>
+    call<{ imported: number; ids: string[] }>('POST', '/import', { file_name, rows }),
+  submitPii: (id: string, spans: Span[], action: 'continue' | 'block') =>
+    call<Item>('POST', itemPath(id, 'pii'), { spans, action }),
+  savePiiDraft: (id: string, spans: Span[] | null) => call<Item>('PUT', itemPath(id, 'pii/draft'), { spans }),
+  decide: (id: string, category: string, note?: string) => call<Item>('POST', itemPath(id, 'decide'), { category, note }),
+  assign: (id: string, assignee: string) => call<Item>('POST', itemPath(id, 'assign'), { assignee }),
+  note: (id: string, text: string) => call<Item>('POST', itemPath(id, 'note'), { text }),
+  close: (id: string, category: string | null) => call<Item>('POST', itemPath(id, 'close'), { category }),
+  retry: (id: string) => call<Item>('POST', itemPath(id, 'retry')),
+  reportMiss: (id: string, type: PiiType, start: number, end: number) =>
+    call<MissReport>('POST', itemPath(id, 'miss'), { type, start, end }),
+  misses: (catchRate: number) => call<MissSummary>('GET', `/misses?catch=${catchRate}`),
+  settings: () => call<Settings>('GET', '/settings'),
+  putSettings: (s: Settings) => call<Settings>('PUT', '/settings', s),
+  simulator: (c: { playing?: boolean; interval_s?: number; step?: boolean; rewind?: boolean }) =>
+    call<SimulatorState>('POST', '/simulator', c),
+  reset: () => call<{ detail: string }>('POST', '/reset'),
+  slack: () => call<SlackStatus>('GET', '/slack'),
+  posts: (limit = 300) => call<Post[]>('GET', `/posts?limit=${limit}`),
+  bulkAssign: (ids: string[], assignee: string) => call<BulkResult>('POST', '/bulk/assign', { ids, assignee }),
+  bulkPii: (ids: string[]) => call<BulkResult>('POST', '/bulk/pii', { ids }),
+  assignment: () => call<AssignStats>('GET', '/assignment'),
+  tuning: (source: 'human' | 'expected', targetError: number) =>
+    call<TuningReport>('GET', `/tuning?source=${source}&target_error=${targetError}`),
+}

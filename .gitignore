@@ -1,0 +1,40 @@
+# 秘密情報（トークンは .env に置く。見本の .env.example だけは載せる）
+.env
+.env.*
+!.env.example
+
+# Python
+.venv/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+.coverage
+htmlcov/
+
+# 実行時のデータ（受付箱の DB・使用量の記録・控え）
+var/
+*.log
+
+# 生成物（scripts/start.sh・serve.sh と scripts/build_docs.py で作り直せる）
+src/jevlab/static/
+docs/html/
+
+# フロントエンド（frontend/.gitignore にもある）
+frontend/node_modules/
+frontend/dist/
+*.tsbuildinfo
+
+# Playwright の確認で出るスクリーンショット・ログ
+.playwright-mcp/
+
+# Claude Code の個人設定（共有の .claude/settings.json は載せる）
+.claude/settings.local.json
+.claude/scheduled_tasks.lock
+
+# エディタ・OS
+.vscode/*
+!.vscode/extensions.json
+.idea/
+.DS_Store

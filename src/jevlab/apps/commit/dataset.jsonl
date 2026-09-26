@@ -1,0 +1,30 @@
+{"id": "c01", "body": "メッセージ: ユーザー一覧にCSVエクスポートボタンを追加\n変更: src/pages/users.tsx, src/api/export.ts（新規）", "type": "feat", "breaking": false, "impact": 1}
+{"id": "c02", "body": "メッセージ: 日付が月末の場合に請求日が翌月にずれる不具合を修正\n変更: src/billing/schedule.py", "type": "fix", "breaking": false, "impact": 1}
+{"id": "c03", "body": "メッセージ: READMEのセットアップ手順を最新化\n変更: README.md", "type": "docs", "breaking": false, "impact": 0}
+{"id": "c04", "body": "メッセージ: OrderServiceの巨大なメソッドを3つの関数に分割（挙動は変更なし）\n変更: src/order/service.py", "type": "refactor", "breaking": false, "impact": 0}
+{"id": "c05", "body": "メッセージ: ログインAPIのテストケースを追加\n変更: tests/test_login.py", "type": "test", "breaking": false, "impact": 0}
+{"id": "c06", "body": "メッセージ: 依存パッケージをまとめて更新\n変更: package.json, package-lock.json", "type": "chore", "breaking": false, "impact": 1}
+{"id": "c07", "body": "メッセージ: /api/v1/users を削除し /api/v2/members に一本化。旧エンドポイントは廃止\n変更: src/api/v1/users.ts（削除）, src/api/v2/members.ts, docs/api.md", "type": "feat", "breaking": true, "impact": 2}
+{"id": "c08", "body": "メッセージ: パスワードリセットメールのリンクが期限切れにならない脆弱性を修正\n変更: src/auth/reset.py, tests/test_reset.py", "type": "fix", "breaking": false, "impact": 2}
+{"id": "c09", "body": "メッセージ: GitHub Actions のNodeバージョンを20に変更\n変更: .github/workflows/ci.yml", "type": "chore", "breaking": false, "impact": 0}
+{"id": "c10", "body": "メッセージ: 設定ファイルをYAMLからTOMLへ移行。既存の config.yaml は読み込まれなくなる\n変更: src/config/loader.py, config.example.toml, config.example.yaml（削除）", "type": "refactor", "breaking": true, "impact": 2}
+{"id": "c11", "body": "メッセージ: 商品詳細ページにレビュー投稿機能を追加\n変更: src/pages/product.tsx, src/api/review.ts, db/migrations/0042_reviews.sql", "type": "feat", "breaking": false, "impact": 2}
+{"id": "c12", "body": "メッセージ: typo修正（recieve → receive）\n変更: docs/guide.md", "type": "docs", "breaking": false, "impact": 0}
+{"id": "c13", "body": "メッセージ: スマホでヘッダーのメニューが開かない問題を修正\n変更: src/components/Header.tsx", "type": "fix", "breaking": false, "impact": 0}
+{"id": "c14", "body": "メッセージ: 決済モジュールのテストをモックからテスト用サンドボックス接続に変更\n変更: tests/payment/conftest.py, tests/payment/test_charge.py", "type": "test", "breaking": false, "impact": 1}
+{"id": "c15", "body": "メッセージ: 認証ミドルウェアを共通化し、全APIで同じ実装を使うよう整理（挙動は同じ）\n変更: src/middleware/auth.ts, src/api/*.ts（24ファイル）", "type": "refactor", "breaking": false, "impact": 2}
+{"id": "c16", "body": "メッセージ: createUser() の引数に必須の tenantId を追加\n変更: src/sdk/users.ts, src/sdk/index.d.ts", "type": "feat", "breaking": true, "impact": 2}
+{"id": "c17", "body": "メッセージ: ESLintのルールを追加しwarningを解消\n変更: .eslintrc.json, src/utils/format.ts", "type": "chore", "breaking": false, "impact": 0}
+{"id": "c18", "body": "メッセージ: 大量注文時にN+1クエリでタイムアウトする問題を修正\n変更: src/order/repository.py", "type": "fix", "breaking": false, "impact": 1}
+{"id": "c19", "body": "メッセージ: APIリファレンスにレート制限の説明を追記\n変更: docs/api/rate-limit.md, docs/api/index.md", "type": "docs", "breaking": false, "impact": 0}
+{"id": "c20", "body": "メッセージ: ダークモードを追加\n変更: src/theme/dark.css（新規）, src/theme/index.ts, src/components/Settings.tsx", "type": "feat", "breaking": false, "impact": 1}
+{"id": "c21", "body": "メッセージ: 未使用のヘルパー関数を削除し、変数名を分かりやすく変更\n変更: src/utils/string.ts", "type": "refactor", "breaking": false, "impact": 0}
+{"id": "c22", "body": "メッセージ: E2Eテストに購入フローのシナリオを追加\n変更: e2e/purchase.spec.ts", "type": "test", "breaking": false, "impact": 0}
+{"id": "c23", "body": "メッセージ: Python 3.10 のサポートを終了し、最小バージョンを3.12に引き上げ\n変更: pyproject.toml, .github/workflows/ci.yml", "type": "chore", "breaking": true, "impact": 1}
+{"id": "c24", "body": "メッセージ: タイムゾーン未指定の日時がUTCとして保存されていた問題を修正。既存データの変換マイグレーションを含む\n変更: src/models/base.py, db/migrations/0051_fix_tz.sql", "type": "fix", "breaking": false, "impact": 2}
+{"id": "c25", "body": "メッセージ: 通知設定画面でメール通知のON/OFFを選べるようにする\n変更: src/pages/settings/notify.tsx, src/api/notify.ts", "type": "feat", "breaking": false, "impact": 1}
+{"id": "c26", "body": "メッセージ: Dockerfileのベースイメージを軽量なものに変更\n変更: Dockerfile", "type": "chore", "breaking": false, "impact": 1}
+{"id": "c27", "body": "メッセージ: レスポンスのJSONキーをスネークケースからキャメルケースに統一\n変更: src/api/serializer.ts, src/api/*.ts（18ファイル）", "type": "refactor", "breaking": true, "impact": 2}
+{"id": "c28", "body": "メッセージ: 境界値のテストを追加（在庫0件・上限件数）\n変更: tests/test_inventory.py", "type": "test", "breaking": false, "impact": 0}
+{"id": "c29", "body": "メッセージ: 関数のdocstringを追加\n変更: src/billing/invoice.py（コメントのみ）", "type": "docs", "breaking": false, "impact": 0}
+{"id": "c30", "body": "メッセージ: 検索結果が0件のときに画面が真っ白になる問題を修正\n変更: src/pages/search.tsx", "type": "fix", "breaking": false, "impact": 0}
