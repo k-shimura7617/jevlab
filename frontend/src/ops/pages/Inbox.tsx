@@ -102,11 +102,14 @@ export function Inbox() {
   const [query, setQuery] = useState('')
   const [channel, setChannel] = useState<Channel | 'all'>('all')
   const [composing, setComposing] = useState(false)
+  // 完了した件は既定で隠す（人の対応が要る件を見つけやすくするため）
+  const [showClosed, setShowClosed] = useState(false)
   const list = usePolling(() => ops.items())
   const selected = params.get('id')
   const items = list.data ?? []
   const q = query.trim()
   const inTab = (i: Item, t: Tab) => {
+    if (!showClosed && i.status === 'closed') return false
     const statuses = TABS.find((x) => x.id === t)?.statuses
     return !statuses || statuses.includes(i.status)
   }
@@ -130,7 +133,7 @@ export function Inbox() {
           <div className="tabs" role="tablist">
             {TABS.map((t) => (
               <button key={t.id} type="button" role="tab" aria-selected={tab === t.id} className="tab" onClick={() => setTab(t.id)}>
-                {t.label}
+                {t.id === 'done' && !showClosed ? '振り分け済み' : t.label}
                 <span className="n">{items.filter((i) => inTab(i, t.id)).length}</span>
               </button>
             ))}
@@ -145,6 +148,9 @@ export function Inbox() {
                 </option>
               ))}
             </select>
+            <label className="small">
+              <input type="checkbox" checked={showClosed} onChange={(e) => setShowClosed(e.target.checked)} /> 完了を表示
+            </label>
           </div>
           {list.error && <div className="error small">{list.error}</div>}
           <div className="item-list" data-testid="inbox-list">
