@@ -1,7 +1,9 @@
 /* 運用（サポート窓口）の画面 */
 
 /* サイドバーの件数 */
-.nav-badge { float: right; min-width: 20px; padding: 0 6px; border-radius: 999px; font-size: 11px; font-weight: 700; text-align: center; line-height: 18px; margin-top: 1px; color: #fff; }
+/* 項目名・（接続先）・件数を 1 行に並べ、狭いときは（接続先）を省略する */
+.sidebar nav a:has(.nav-badge, .nav-who) { display: flex; align-items: center; }
+.nav-badge { flex: none; margin-left: auto; min-width: 20px; padding: 0 6px; border-radius: 999px; font-size: 11px; font-weight: 700; text-align: center; line-height: 18px; margin-top: 1px; color: #fff; }
 .nav-badge.warn { background: var(--warn); }
 .nav-badge.ng { background: var(--ng); }
 
@@ -289,7 +291,7 @@ tr.off td { color: var(--muted); }
   .nav-label { display: none; }
 }
 /* 左ペインの接続先の注記（その画面の判定に使うモデル） */
-.nav-who { font-size: 11px; opacity: .7; margin-left: 2px; }
+.nav-who { font-size: 11px; opacity: .7; margin: 0 4px 0 6px; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
 
 /* 一括操作 */
 .check-row { display: flex; align-items: stretch; }
