@@ -9,7 +9,7 @@ import pytest
 
 from jevlab.ops.models import IngestRequest, Settings, SlackSettings, SlaSettings, StaffMember
 from jevlab.ops.pipeline import ESCALATION_CHANNEL, INBOUND_CHANNEL, Pipeline
-from jevlab.ops.slack import InboundHandle, SlackConnector, SlackSendError, inbound_request
+from jevlab.ops.slack import InboundHandle, SdkSlackApi, SlackConnector, SlackSendError, inbound_request
 from jevlab.ops.store import Store
 
 C_ESC = "C0ESCALATE1"
@@ -29,6 +29,7 @@ class FakeApi:
         self.auth_calls = 0
         self.reactions: list[tuple[str, str, str]] = []
         self.deleted: list[str] = []
+        self.undeletable: set[str] = set()
         self.fail_reaction: SlackSendError | None = None
 
     def auth_test(self) -> str:
@@ -69,8 +70,11 @@ class FakeApi:
         ]
         return [ts for ts, th in mine if th is not None] + [ts for ts, th in mine if th is None]
 
-    def delete_message(self, channel: str, ts: str) -> None:
+    def delete_message(self, channel: str, ts: str) -> bool:
+        if ts in self.undeletable:
+            return False
         self.deleted.append(ts)
+        return True
 
 
 class FakeHandle:
@@ -578,6 +582,40 @@ async def test_purge_deletes_own_posts_and_forgets_refs(tmp_path: Path) -> None:
     assert api.deleted == ["2.0", "1.0"]
     item = conn.pipeline.store.get(item_id)
     assert item.slack_ts is None and item.slack_channel is None and not item.slack_notified
+
+
+@pytest.mark.anyio
+async def test_purge_skips_messages_it_cannot_delete(tmp_path: Path) -> None:
+    api = FakeApi()
+    conn = make(tmp_path, api, None, outbound=True, channel_map={ESCALATION_CHANNEL: C_ESC})
+    with_staff(conn)
+    await conn.tick()
+    escalate(conn)
+    await conn.tick()
+    api.undeletable = {"2.0"}
+    conn.start_purge()
+    assert conn._purge_task is not None
+    await conn._purge_task
+    st = conn.status().purge
+    assert not st.running and st.error is None
+    assert (st.deleted, st.skipped, st.total) == (1, 1, 2)
+    assert api.deleted == ["1.0"]
+
+
+def test_own_messages_ignores_join_notices() -> None:
+    class Client:
+        def conversations_history(self, **_: object) -> dict[str, object]:
+            return {
+                "messages": [
+                    {"ts": "1.0", "user": "UBOT", "subtype": "channel_join"},
+                    {"ts": "2.0", "user": "UBOT", "bot_id": "B1"},
+                    {"ts": "3.0", "user": "UHUMAN"},
+                ]
+            }
+
+    api = SdkSlackApi.__new__(SdkSlackApi)
+    api.client = Client()  # type: ignore[assignment]
+    assert api.own_messages("C1", "UBOT") == ["2.0"]
 
 
 def test_purge_needs_mapped_channels(tmp_path: Path) -> None:
