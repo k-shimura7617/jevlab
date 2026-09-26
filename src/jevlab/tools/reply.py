@@ -30,7 +30,7 @@ from jevlab.tools import tone
 APP_NAME: Final = "tool-reply"
 MAX_CHARS: Final = 4000
 DEFAULT_POLICY: Final = (
-    "返金・交換・無償での対応・補償・送料の負担・到着日や対応期日の確約は、担当者の確認が済むまで約束しない。"
+    "返金・交換・無償での対応・補償・送料の負担・到着日や対応期日の確約は、担当者の確認が済むまで約束しない。\n"
     "確認中であること、次に何をするか、いつまでに連絡するかは伝えてよい。"
 )
 
@@ -256,6 +256,30 @@ REWRITE_SYSTEM: Final = """あなたはカスタマーサポートの返信を�
 - 【氏名】【電話番号】のような伏せ字はそのまま残す。
 - 問題のない部分は、担当者の言い回しをなるべく残す。
 - 出力は指定の JSON だけ。"""
+
+
+DRAFT_SYSTEM: Final = """あなたはカスタマーサポートの担当者です。
+お客様の問い合わせを読み、送る前の返信の案を書いてください。
+
+守ること:
+- 会社の方針を超える約束（返金・交換・補償・期日の確約など）はしない。確認中であること、次に何をするか、いつまでに連絡するかを書く。
+- 問い合わせの質問・依頼のすべてに答えるか、答えられない理由と次の対応を書く。
+- 謝罪は状況に合った量にする。
+- 足りない情報は作らずに【注文番号を記入】のような空欄を置く（多くても 3 つ）。
+- 【氏名】【電話番号】のような伏せ字はそのまま残す。
+- 読みやすいよう、句点（。）のあとで改行する。
+- changes には、案で気を付けた点を書く。
+- 出力は指定の JSON だけ。"""
+
+
+class DraftRequest(BaseModel):
+    inquiry: Text
+    policy: Policy = ""
+    model: ClaudeModel = "sonnet"
+
+
+def draft_prompt(req: DraftRequest) -> str:
+    return f"会社の方針:\n{req.policy or DEFAULT_POLICY}\n\nお客様の問い合わせ:\n<<<\n{mask(req.inquiry)}\n>>>"
 
 
 class Finding(BaseModel):

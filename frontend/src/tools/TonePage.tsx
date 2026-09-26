@@ -16,6 +16,7 @@ import {
   type ToneResult,
 } from './api'
 import { useElapsed } from './common'
+import { Sentences } from './Sentences'
 
 const SAMPLES: { label: string; text: string; recipient: Recipient; medium: Medium }[] = [
   { label: '催促', text: '例の件、まだですか？なんで昨日までに終わってないんですか。至急お願いします。', recipient: 'colleague', medium: 'chat' },
@@ -136,7 +137,9 @@ function ResultView({
     <section className={`panel tone-result verdict-${v.verdict}`} data-testid="tone-result">
       <div className="verdict-banner">
         <span className="verdict-label">{VERDICT_LABELS[v.verdict]}</span>
-        <span>{v.note}</span>
+        <span>
+          <Sentences text={v.note} />
+        </span>
       </div>
       <div className="row">
         <h2 className="inline">{title}</h2>

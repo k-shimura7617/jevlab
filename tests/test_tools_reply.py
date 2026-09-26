@@ -96,3 +96,21 @@ def test_rewrite_sends_masked_text_and_policy(client: TestClient, monkeypatch: p
     assert fake.requests[0].schema == tone.REWRITE_SCHEMA
     monkeypatch.setattr(tools_api, "make_generator", lambda model: FakeGenerator({"changes": []}))
     assert client.post("/api/tools/reply/rewrite", json=body).status_code == 502
+
+
+def test_draft_sends_masked_inquiry_and_policy(client: TestClient, monkeypatch: pytest.MonkeyPatch) -> None:
+    fake = FakeGenerator(
+        {
+            "rewritten": "ご連絡ありがとうございます。\n【期限を記入】までにご連絡します。",
+            "changes": ["期日は確約しない"],
+        }
+    )
+    monkeypatch.setattr(tools_api, "make_generator", lambda model: fake)
+    res = client.post("/api/tools/reply/draft", json={"inquiry": INQUIRY})
+    assert res.status_code == 200, res.text
+    assert res.json()["rewritten"].startswith("ご連絡ありがとうございます")
+    prompt = fake.requests[0].prompt
+    assert "090-1111-2222" not in prompt and reply.DEFAULT_POLICY in prompt
+    assert fake.requests[0].system == reply.DRAFT_SYSTEM
+    monkeypatch.setattr(tools_api, "make_generator", lambda model: FakeGenerator({"changes": []}))
+    assert client.post("/api/tools/reply/draft", json={"inquiry": INQUIRY}).status_code == 502

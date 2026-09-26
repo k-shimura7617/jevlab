@@ -99,3 +99,13 @@ h2.inline { margin: 0; }
 /* 判定するボタンは右端の決まった位置に置き、文言が変わっても幅を変えない */
 .judge-row { justify-content: flex-end; }
 .judge-btn { min-width: 7.5em; }
+.sentence { display: block; }
+
+/* 返信前チェック: 入力欄は余白を持たせて読みやすく。方針は押しやすい大きさのボタンで開く */
+.reply-input textarea { padding: 10px 12px; font-size: 15px; }
+.reply-input label.small { margin-top: 8px; font-size: 14px; }
+.policy-row { display: flex; align-items: center; gap: 8px; margin-top: 10px; }
+.policy-row button { padding: 6px 14px; font-size: 14px; }
+.policy-box { width: 100%; margin-top: 6px; padding: 10px 12px; font-size: 14px; line-height: 1.7; }
+.draft-head { display: flex; align-items: center; gap: 8px; margin-top: 8px; }
+.draft-head label { margin: 0; }
