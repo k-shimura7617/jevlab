@@ -126,3 +126,10 @@ def test_auto_close_defaults_to_thanks_only() -> None:
     s = Settings()
     assert [c.key for c in s.categories if c.auto_close] == ["thanks"]
     assert s.auto_closes("thanks") and not s.auto_closes("inquiry") and not s.auto_closes(None)
+
+
+def test_settings_saved_before_auto_close_treat_thanks_as_no_reply() -> None:
+    saved = Settings().model_dump()
+    for c in saved["categories"]:
+        del c["auto_close"]
+    assert [c.key for c in Settings.model_validate(saved).categories if c.auto_close] == ["thanks"]

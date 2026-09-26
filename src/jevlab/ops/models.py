@@ -383,6 +383,14 @@ class CategoryDef(BaseModel):
     # 返信のいらない分類（お礼など）。自動で振り分けた件は、投稿したうえで自動で完了にする
     auto_close: bool = False
 
+    @model_validator(mode="before")
+    @classmethod
+    def _thanks_needs_no_reply(cls, data: object) -> object:
+        # 「返信不要」を足す前に保存した設定では項目がない。お礼は返信不要として読む
+        if isinstance(data, dict) and "auto_close" not in data and data.get("key") == "thanks":
+            return {**data, "auto_close": True}
+        return data
+
 
 def _default_categories() -> list[CategoryDef]:
     from jevlab.apps.mail.questions import CATEGORY_LABELS, QUESTIONS

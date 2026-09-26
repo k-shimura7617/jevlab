@@ -364,7 +364,7 @@ function FileImport() {
       setParsed(null)
       refresh()
       // 取り込んだ件が処理される様子を、ダッシュボードの処理フローで見る
-      navigate('/ops#flow')
+      navigate('/ops#flow', { state: backfill ? null : { imported: ids.length } })
     } catch (e: unknown) {
       setError(`${ids.length} 件まで取り込んだところで失敗しました: ${errorMessage(e)}`)
     } finally {

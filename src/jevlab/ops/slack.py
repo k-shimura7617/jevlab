@@ -523,7 +523,11 @@ class SlackConnector:
                     elif item is not None and item.slack_ts is None:
                         # 振り分けの最初の投稿を親にする（完了の返信とリアクションをここに付ける）
                         parent = await self._parent(post, item, target, settings)
-                        if parent.status == "routed" and not parent.slack_notified:
+                        if (
+                            parent.status == "routed"
+                            and not parent.slack_notified
+                            and not settings.auto_closes(parent.category)
+                        ):
                             # 返信の要る件は、スレッドで担当（決まっていなければ振り分け担当）をメンションする
                             await self._send(target, assign_line(parent, settings), parent.slack_ts)
                             store.update(parent.id, lambda i: i.model_copy(update={"slack_notified": True}))
