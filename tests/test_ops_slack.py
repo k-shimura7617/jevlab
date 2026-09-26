@@ -688,3 +688,20 @@ async def test_routed_item_needing_a_reply_is_assigned_and_mentioned(tmp_path: P
     assert api.sent[1][1] == "<@U0TAMURA1>\n対応お願いします。\n担当確信度 0.30" and api.threads[1] == "1.0"
     # 振り分け済みの件も、人が担当を変えられる
     assert conn.pipeline.assign(item.id, "sato").assignee == "sato"
+
+
+@pytest.mark.anyio
+async def test_thanks_decided_in_review_is_closed_without_mention(tmp_path: Path) -> None:
+    api = FakeApi()
+    conn = make(tmp_path, api, None, outbound=True, channel_map={"#cs-お礼": "C0THANKS01"})
+    with_staff(conn)
+    await conn.tick()
+    store = conn.pipeline.store
+    item = store.add_item(IngestRequest(channel="mail", subject="ありがとうございました", body="本文"))
+    store.update(item.id, lambda i: i.model_copy(update={"status": "review", "category": "inquiry"}))
+    decided = conn.pipeline.decide(item.id, "thanks")
+    # お礼は返信がいらないので、担当は割り当てず完了にする
+    assert decided.status == "closed" and decided.auto_closed and decided.assignee is None
+    await conn.tick()
+    # 投稿に ✅ を付けるだけ。メンションはしない
+    assert len(api.sent) == 1 and api.reactions == [("C0THANKS01", "1.0", "white_check_mark")]

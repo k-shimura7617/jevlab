@@ -178,6 +178,33 @@ function KevDownBanner() {
   )
 }
 
+/**
+ * 処理フローの進み具合。処理待ちが 0 から増えたときを 1 回の処理の始まりとし、
+ * それまでに終わっていた件を除いて「全 N 件中、何件終わったか」を出す（取り込み・受信のまとまりごと）。
+ */
+function FlowProgress({ received, waiting, imported }: { received: number; waiting: number; imported: number | null }) {
+  const [run, setRun] = useState<{ base: number; active: boolean } | null>(null)
+  // 描画中に状態を合わせる（処理待ちの増減に合わせて、始まり・終わりを記録する）。
+  // 取り込みの直後に開いたときの最初の処理は、取り込んだ件数を全体に数える（開くまでに終わった件も含める）
+  if (waiting > 0 && !run?.active)
+    setRun({ base: run === null && imported !== null ? Math.max(0, received - imported) : received - waiting, active: true })
+  if (waiting === 0 && run?.active) setRun({ ...run, active: false })
+  const base = Math.min(run?.base ?? 0, received)
+  const total = received - base
+  const done = total - waiting
+  return (
+    <div className="row flow-progress" data-testid="flow-progress">
+      <div className="sim-progress" role="progressbar" aria-label="処理済みの件数" aria-valuemin={0} aria-valuemax={total} aria-valuenow={done}>
+        <span style={{ width: pct(total ? done / total : 0) }} />
+      </div>
+      <span className="small">
+        {done} / {total} 件 処理済み
+        {waiting > 0 && <span className="live-dot" aria-label="処理中" />}
+      </span>
+    </div>
+  )
+}
+
 export function OpsHome() {
   useTitle('運用ダッシュボード')
   const { overview, overviewError, settings } = useOps()
@@ -186,7 +213,9 @@ export function OpsHome() {
   const acc = (a: { n: number; matched: number } | undefined) => (a && a.n >= 5 ? pct(a.matched / a.n) : '-')
   const waitingHuman = f ? f.pii_review + f.review + f.escalated : 0
   // ファイル取り込みの後などに #flow で開いたら、処理フローまで送る
-  const { hash } = useLocation()
+  const { hash, state } = useLocation()
+  // ファイル取り込みから移ってきたときの、取り込んだ件数
+  const imported = typeof state === 'object' && state !== null && 'imported' in state && typeof state.imported === 'number' ? state.imported : null
   const flowShown = f !== undefined
   useEffect(() => {
     if (hash === '#flow' && flowShown) document.getElementById('flow')?.scrollIntoView({ block: 'start' })
@@ -205,6 +234,7 @@ export function OpsHome() {
       {f && (
         <section className="panel" data-testid="flow" id="flow">
           <h2>処理フロー</h2>
+          <FlowProgress received={f.received} waiting={f.waiting} imported={imported} />
           <div className="flow">
             <Node title="受信" count={f.received} to="/ops/inbox" tone="accent">
               処理待ち {f.waiting}

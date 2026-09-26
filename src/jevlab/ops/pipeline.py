@@ -588,8 +588,9 @@ class Pipeline:
                     "system",
                     f"自動で {settings.route_channel(item.category)} へ（{reason}）",
                 )
-                closes = not audit and settings.auto_closes(item.category)
-                if not closes:
+                no_reply = settings.auto_closes(item.category)
+                closes = no_reply and not audit
+                if not no_reply:
                     # 返信の要る件は、担当を割り当てて（届かなければ仮で）Slack でメンションする
                     self._auto_assign(item, settings)
                 self._post_routed(item, by="jevlab（自動）")
@@ -839,6 +840,10 @@ class Pipeline:
             updated = self.store.get(item_id)
         if item.status == "review" or fixed:
             self._post_routed(updated, by="担当者（確認済み）")
+        if settings.auto_closes(category):
+            # 返信のいらない分類（お礼など）は、確認・抜き取りで確定したら、投稿して ✅ を付けて完了にする
+            self._auto_close(updated, settings)
+            updated = self.store.get(item_id)
         return updated
 
     def assign(self, item_id: str, assignee: str, *, bulk: bool = False) -> Item:

@@ -393,3 +393,6 @@ tr.off td { color: var(--muted); }
 .slack-purge { margin-top: 24px; padding-top: 12px; border-top: 1px solid var(--line); }
 .slack-purge h3 { margin: 0 0 8px; }
 #flow { scroll-margin-top: 64px; }
+/* 処理フローの進み具合は、シミュレータより長いバーにする */
+.flow-progress { margin: 0 0 8px; }
+.flow-progress .sim-progress { flex: 1 1 auto; max-width: 480px; height: 8px; }
