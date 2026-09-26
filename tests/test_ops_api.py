@@ -758,3 +758,14 @@ def test_reported_miss_is_masked_in_titles_and_assign_examples(client: TestClien
     assert client.post(f"/api/ops/items/{item_id}/close", json={"category": "inquiry"}).status_code == 200
     examples = pipeline._assign_examples(pipeline.store.settings())
     assert examples[staff] and all("hana0503" not in t for t in examples[staff])
+
+
+def test_escalation_close_is_posted_to_the_escalation_channel_with_notes(client: TestClient) -> None:
+    configure(client, guard__human_check=False, classify__auto_threshold=1.0, classify__review_threshold=1.0)
+    item_id = ingest(client, "至急連絡ください")
+    assert settle(client, item_id)["item"]["status"] == "escalated"
+    client.post(f"/api/ops/items/{item_id}/note", json={"text": "電話済み"})
+    client.post(f"/api/ops/items/{item_id}/close", json={"category": "complaint"})
+    done = [p for p in client.get("/api/ops/posts").json() if p["author"] == "担当者（対応完了）"]
+    assert [p["channel"] for p in done] == ["#cs-エスカレーション"]
+    assert done[0]["text"].splitlines()[-2:] == ["メモ:", "・電話済み"]
