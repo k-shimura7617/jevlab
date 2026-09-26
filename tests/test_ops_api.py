@@ -829,3 +829,14 @@ def test_scope_draft_reports_bad_generator_output(client: TestClient, monkeypatc
     client.post(f"/api/ops/items/{item}/assign", json={"assignee": "sato"})
     client.post(f"/api/ops/items/{item}/close", json={"category": "other"})
     assert client.post("/api/ops/staff/sato/scope-draft", json={}).status_code == 502
+
+
+def test_escalation_close_is_posted_to_the_escalation_channel_with_notes(client: TestClient) -> None:
+    configure(client, guard__human_check=False, classify__auto_threshold=1.0, classify__review_threshold=1.0)
+    item_id = ingest(client, "至急連絡ください")
+    assert settle(client, item_id)["item"]["status"] == "escalated"
+    client.post(f"/api/ops/items/{item_id}/note", json={"text": "電話済み"})
+    client.post(f"/api/ops/items/{item_id}/close", json={"category": "complaint"})
+    done = [p for p in client.get("/api/ops/posts").json() if p["author"] == "担当者（対応完了）"]
+    assert [p["channel"] for p in done] == ["#cs-エスカレーション"]
+    assert done[0]["text"].splitlines()[-2:] == ["メモ:", "・電話済み"]

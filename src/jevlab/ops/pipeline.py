@@ -111,6 +111,20 @@ def category_label(key: str | None) -> str:
 EXAMPLE_DECISIONS: Final[frozenset[PiiDecision]] = frozenset({"none", "masked", "allowed"})
 
 
+# 対応完了の投稿の差出人。Slack ではこの投稿を流さず、元の投稿のスレッドへの返信で知らせる
+CLOSE_AUTHOR: Final = "担当者（対応完了）"
+
+
+def notes_lines(item: Item) -> list[str]:
+    """対応のメモを 1 件 1 行で返す（外に出す投稿用）。
+
+    メモは人が自由に書くので、電話番号などが入りうる。規則で見つかる個人情報は伏せてから出す。
+    """
+    if not item.notes:
+        return []
+    return ["メモ:", *(f"・{mask_all(n, detect(n))}".replace("\n", " ") for n in item.notes)]
+
+
 def safe_title(item: Item, limit: int = 30) -> str:
     """チャンネルへの投稿など外に出す見出し。確定済みの個人情報は方針に関係なく伏せる。"""
     masked = mask_all(item.text, item.pii)
@@ -831,23 +845,20 @@ class Pipeline:
                 }
             ),
         )
-        # 対応が終わった件も分類ごとのチャンネルに残す（振り分け済み・完了の件がすべてチャンネルで追えるように）。
+        # エスカレーションの完了は、エスカレーションのチャンネルにだけ知らせる（Slack では元の投稿のスレッド）。
+        # 分類のチャンネルには元の投稿がないため、完了だけ届いても何の件か分からず、通知が増えるだけになる。
         # 振り分け済みの件は、そのチャンネルに投稿済みなので、分類を直したときだけ新しいチャンネルに投稿する
-        # （完了は Slack では元の投稿のスレッドとリアクションで知らせる）
         if item.status == "escalated" or fixed:
-            channel = ROUTE_CHANNELS.get(final or "", "#cs-その他")
+            channel = (
+                ESCALATION_CHANNEL if item.status == "escalated" else ROUTE_CHANNELS.get(final or "", "#cs-その他")
+            )
             lines = [f"{item_id}「{safe_title(updated)}」", "対応完了"]
             if updated.assignee:
                 lines.append(f"担当: {self.staff_name(updated.assignee)}")
-            if fixed and item.status == "routed":
-                lines.append(f"分類を {category_label(item.category)} から修正")
-            self.store.add_post(
-                channel,
-                "担当者（対応完了）",
-                "\n".join(lines),
-                item_id,
-                updated.fields,
-            )
+            if fixed:
+                lines.append(f"分類を {category_label(item.category)} から {category_label(final)} に修正")
+            lines.extend(notes_lines(updated))
+            self.store.add_post(channel, CLOSE_AUTHOR, "\n".join(lines), item_id, updated.fields)
         self.store.add_event(
             item_id,
             "close",

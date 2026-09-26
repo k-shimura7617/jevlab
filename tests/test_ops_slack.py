@@ -494,3 +494,27 @@ async def test_off_duty_dispatcher_is_not_called(tmp_path: Path) -> None:
     await conn.tick()
     reply = api.sent[1][1]
     assert "U0SATO001" not in reply and "振り分け担当が未設定" in reply
+
+
+@pytest.mark.anyio
+async def test_escalation_close_replies_only_in_the_thread_with_masked_notes(tmp_path: Path) -> None:
+    api = FakeApi()
+    conn = make(
+        tmp_path, api, None, outbound=True, channel_map={ESCALATION_CHANNEL: C_ESC, "#cs-クレーム": C_COMPLAINT}
+    )
+    with_staff(conn)
+    await conn.tick()
+    item_id = escalate(conn, category="complaint")
+    await conn.tick()
+    parent_ts = conn.pipeline.store.get(item_id).slack_ts
+    sent_before = len(api.sent)
+    conn.pipeline.add_note(item_id, "お客様に電話済み 090-1234-5678")
+    conn.pipeline.add_note(item_id, "代品を本日発送")
+    conn.pipeline.close(item_id, "complaint")
+    await conn.tick()
+    new = list(zip(api.sent[sent_before:], api.threads[sent_before:], strict=True))
+    # 分類のチャンネル（クレーム）には流さず、エスカレーションのスレッドに 1 回だけ返す
+    assert [(ch, th) for (ch, _), th in new] == [(C_ESC, parent_ts)]
+    reply = new[0][0][1]
+    assert reply.splitlines()[1:] == ["メモ:", "・お客様に電話済み 【電話番号】", "・代品を本日発送"]
+    assert "090-1234-5678" not in reply
