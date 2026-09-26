@@ -160,6 +160,13 @@ def test_safe_title_masks_unconfirmed_candidates_and_limits_length() -> None:
     assert "山田花子" not in title and len(title) <= 24
 
 
+def test_safe_title_masks_candidates_when_guard_was_skipped() -> None:
+    # ガードレールが無効で候補を調べていない件も、見出しは規則で拾った候補を伏せて出す
+    text = "件名: 090-1234-5678 に連絡ください\n\n本文"
+    title = safe_title(make_item(subject="x", text=text, pii_decision="skipped"))
+    assert "090-1234-5678" not in title and "に連絡ください" in title
+
+
 def _choice_view(probs: dict[str, float]) -> AnswerView:
     top = max(probs, key=lambda k: probs[k])
     return AnswerView(type="choice", prediction=top, confidence=0.99, probabilities=probs)

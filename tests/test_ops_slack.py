@@ -302,7 +302,7 @@ async def test_no_reminder_when_assigned_or_turned_off(tmp_path: Path) -> None:
 
 
 @pytest.mark.anyio
-async def test_items_without_guard_are_posted_without_title(tmp_path: Path) -> None:
+async def test_items_without_guard_are_posted_with_title(tmp_path: Path) -> None:
     api = FakeApi()
     conn = make(tmp_path, api, None, outbound=True, channel_map={ESCALATION_CHANNEL: C_ESC})
     with_staff(conn)
@@ -310,8 +310,8 @@ async def test_items_without_guard_are_posted_without_title(tmp_path: Path) -> N
     item_id = escalate(conn, pii_decision="skipped")
     await conn.tick()
     parent = api.sent[0][1]
-    # ガードレールを通していない件は、件名（個人情報が残りうる）を載せない
-    assert "箱が潰れていました" not in parent and item_id in parent and "画面で開く" in parent
+    # ガードレールが無効でも件名は載せる（個人情報の候補は投稿を作るときに規則で伏せる → safe_title のテスト）
+    assert "箱が潰れていました" in parent and item_id in parent and "画面で開く" in parent
 
 
 @pytest.mark.anyio

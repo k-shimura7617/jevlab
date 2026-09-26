@@ -122,8 +122,12 @@ def notes_lines(item: Item) -> list[str]:
 
 
 def safe_title(item: Item, limit: int = 30) -> str:
-    """チャンネルへの投稿など外に出す見出し。確定済みの個人情報は方針に関係なく伏せる。"""
-    masked = mask_all(item.text, item.pii)
+    """チャンネルへの投稿など外に出す見出し。確定済みの個人情報は方針に関係なく伏せる。
+
+    ガードレールを通していない件（無効のとき）は候補がないので、規則で拾った候補をすべて伏せる。
+    """
+    spans = detect(item.text) if item.pii_decision == "skipped" else item.pii
+    masked = mask_all(item.text, spans)
     if item.subject.strip() and masked.startswith("件名: "):
         return masked[len("件名: ") :].split("\n", 1)[0].strip()[:limit]
     return masked.replace("\n", " ")[:limit]

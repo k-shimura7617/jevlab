@@ -1,5 +1,5 @@
-import { useState, type CSSProperties, type ReactNode } from 'react'
-import { Link } from 'react-router'
+import { useEffect, useState, type CSSProperties, type ReactNode } from 'react'
+import { Link, useLocation } from 'react-router'
 import { errorMessage } from '../../api'
 import { pct } from '../../format'
 import { Page, useTitle } from '../../shell'
@@ -185,6 +185,12 @@ export function OpsHome() {
   // 件数が少ないうちは割合がぶれるので出さない
   const acc = (a: { n: number; matched: number } | undefined) => (a && a.n >= 5 ? pct(a.matched / a.n) : '-')
   const waitingHuman = f ? f.pii_review + f.review + f.escalated : 0
+  // ファイル取り込みの後などに #flow で開いたら、処理フローまで送る
+  const { hash } = useLocation()
+  const flowShown = f !== undefined
+  useEffect(() => {
+    if (hash === '#flow' && flowShown) document.getElementById('flow')?.scrollIntoView({ block: 'start' })
+  }, [hash, flowShown])
   return (
     <Page wide crumbs={[{ label: '運用' }, { label: 'ダッシュボード' }]}>
       <div className="panel-head">
@@ -197,8 +203,8 @@ export function OpsHome() {
       <SimulatorPanel />
 
       {f && (
-        <section className="panel" data-testid="flow">
-          <h2>処理の流れ</h2>
+        <section className="panel" data-testid="flow" id="flow">
+          <h2>処理フロー</h2>
           <div className="flow">
             <Node title="受信" count={f.received} to="/ops/inbox" tone="accent">
               処理待ち {f.waiting}
