@@ -68,3 +68,23 @@ h2.inline { margin: 0; }
 
 /* 作成中の秒数が 2 桁・3 桁になってもボタンの幅が変わらないようにする */
 .rw-btn { min-width: 10.5em; font-variant-numeric: tabular-nums; }
+
+/* 契約・規約チェック */
+.contract-input textarea { min-height: 360px; font-size: 14px; line-height: 1.7; }
+.clause-list { list-style: none; margin: 8px 0 0; padding: 0; display: grid; gap: 8px; }
+.clause { border: 1px solid var(--line); border-left: 4px solid var(--ok); border-radius: 8px; padding: 8px 10px; background: var(--panel); }
+.clause.lv-mid { border-left-color: var(--warn); background: color-mix(in srgb, var(--warn) 6%, var(--panel)); }
+.clause.lv-high { border-left-color: var(--ng); background: color-mix(in srgb, var(--ng) 8%, var(--panel)); }
+.clause-head { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; margin-bottom: 4px; }
+.clause-text { white-space: pre-wrap; font-size: 13px; line-height: 1.7; }
+.clause-tag { font-size: 11px; font-weight: 700; padding: 0 6px; border-radius: 4px; white-space: nowrap; }
+.clause-tag.lv-low { background: var(--ok-soft); color: var(--ok); }
+.clause-tag.lv-mid { background: var(--warn-soft); color: var(--warn); }
+.clause-tag.lv-high { background: var(--ng-soft); color: var(--ng); }
+.flag-chip { font-size: 11px; padding: 0 6px; border-radius: 999px; border: 1px solid var(--line); background: var(--bg); }
+.clause-explain { margin-top: 6px; padding: 6px 10px; border-radius: 6px; background: var(--bg); font-size: 13px; }
+.clause-explain p { margin: 0 0 4px; }
+.clause-explain ul { margin: 0; padding-left: 18px; }
+@media (min-width: 1001px) {
+  .contract-input > textarea { height: auto; flex: 1 1 auto; min-height: 360px; }
+}

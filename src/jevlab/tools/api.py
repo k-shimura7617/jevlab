@@ -15,7 +15,7 @@ from jevlab.core.client import judge
 from jevlab.core.engine import answer_views
 from jevlab.core.generator import CLAUDE_MODELS, GenerateRequest, GenerationError, make_generator
 from jevlab.ops.pipeline import BackendLike
-from jevlab.tools import tone
+from jevlab.tools import contract, tone
 
 router = APIRouter(prefix="/api/tools", tags=["tools"])
 # claude -p は重いので同時に走らせる数を絞る（サブスクの枠も守る）
@@ -121,4 +121,94 @@ async def rewrite(req: tone.RewriteRequest, request: Request) -> tone.RewriteRes
         model=out.model,
         latency_ms=out.latency_ms,
         reported_cost_usd=out.reported_cost_usd,
+    )
+
+
+# ---- 契約・規約チェック ----
+
+
+class ContractMeta(BaseModel):
+    flags: dict[str, str]
+    risks: dict[str, str]
+    max_clauses: int
+    max_chars: int
+    disclaimer: str
+    models: list[str]
+    default_model: str
+
+
+@router.get("/contract/meta")
+async def contract_meta() -> ContractMeta:
+    return ContractMeta(
+        flags=dict(contract.FLAG_LABELS),
+        risks=dict(contract.RISK_LABELS),
+        max_clauses=contract.MAX_CLAUSES,
+        max_chars=contract.MAX_CHARS,
+        disclaimer=contract.DISCLAIMER,
+        models=list(CLAUDE_MODELS),
+        default_model=DEFAULT_MODEL,
+    )
+
+
+class ContractRequest(BaseModel):
+    text: contract.Text
+
+
+@router.post("/contract")
+async def check_contract(
+    req: ContractRequest, backend: Annotated[BackendLike, Depends(_backend)]
+) -> contract.ContractResult:
+    all_clauses = [c[: contract.MAX_CLAUSE_CHARS] for c in contract.split_clauses(req.text)]
+    clauses = all_clauses[: contract.MAX_CLAUSES]
+    if not clauses:
+        raise HTTPException(status_code=422, detail="条項が見つかりません")
+    questions = contract.questions(clauses)
+    try:
+        judged = await judge(
+            backend.client, backend.ledger, app=contract.APP_NAME, state=contract.state(clauses), questions=questions
+        )
+    except BudgetExceededError as e:
+        raise HTTPException(status_code=409, detail=str(e)) from e
+    except TypeSafeError as e:
+        raise HTTPException(status_code=502, detail=f"判定に失敗しました: {type(e).__name__}: {e}") from e
+    try:
+        return contract.build_result(
+            answer_views(questions, judged.response),
+            clauses,
+            truncated=len(all_clauses) > len(clauses),
+            model=judged.response.model,
+            latency_ms=judged.latency_ms,
+            cost_usd=judged.cost_usd,
+        )
+    except (KeyError, ValueError) as e:
+        raise HTTPException(status_code=502, detail=f"判定の応答が想定と違います: {type(e).__name__}: {e}") from e
+
+
+@router.post("/contract/explain")
+async def explain_contract(req: contract.ExplainRequest, request: Request) -> contract.ExplainResult:
+    slots: asyncio.Semaphore = request.app.state.rewrite_slots
+    try:
+        generator = make_generator(req.model)
+        async with slots:
+            out = await generator.generate(
+                GenerateRequest(
+                    system=contract.EXPLAIN_SYSTEM, prompt=contract.explain_prompt(req), schema=contract.EXPLAIN_SCHEMA
+                )
+            )
+    except GenerationError as e:
+        raise HTTPException(status_code=502, detail=f"説明を作れませんでした: {e}") from e
+    data = out.structured
+    raw = data.get("items") if data is not None else None
+    if not isinstance(raw, list):
+        raise HTTPException(status_code=502, detail=f"説明の形が想定と違います: {out.text[:200]}")
+    known = {c.index for c in req.clauses}
+    items = [
+        contract.Explanation(
+            index=int(x["index"]), summary=str(x.get("summary", "")).strip(), ask=_strings(x.get("ask"))
+        )
+        for x in raw
+        if isinstance(x, dict) and isinstance(x.get("index"), int) and x["index"] in known
+    ]
+    return contract.ExplainResult(
+        items=items, model=out.model, latency_ms=out.latency_ms, reported_cost_usd=out.reported_cost_usd
     )

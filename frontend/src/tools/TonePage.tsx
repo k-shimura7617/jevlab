@@ -15,6 +15,7 @@ import {
   type ToneMeta,
   type ToneResult,
 } from './api'
+import { useElapsed } from './common'
 
 const SAMPLES: { label: string; text: string; recipient: Recipient; medium: Medium }[] = [
   { label: '催促', text: '例の件、まだですか？なんで昨日までに終わってないんですか。至急お願いします。', recipient: 'colleague', medium: 'chat' },
@@ -244,21 +245,6 @@ function CompareTable({ before, after, meta, purpose }: { before: ToneResult; af
       </table>
     </div>
   )
-}
-
-function useElapsed(running: boolean): number {
-  const [sec, setSec] = useState(0)
-  const started = useRef(0)
-  useEffect(() => {
-    if (!running) return
-    started.current = Date.now()
-    const timer = setInterval(() => setSec(Math.floor((Date.now() - started.current) / 1000)), 500)
-    return () => {
-      clearInterval(timer)
-      setSec(0)
-    }
-  }, [running])
-  return sec
 }
 
 // 6 文面での実測（2026-09）に基づく目安。
