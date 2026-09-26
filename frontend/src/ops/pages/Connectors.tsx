@@ -318,7 +318,8 @@ function FileImport() {
         setParsed(p)
         const m = p.kind === 'table' ? guessMapping(p.table[0] ?? []) : null
         setMapping(m)
-        setBackfill(m !== null && m.category >= 0)
+        // 完了済みとして取り込むかは、利用者が選ぶ（既定はオフ）
+        setBackfill(false)
         setValueMap({})
       })
       .catch((e: unknown) => setError(errorMessage(e)))
@@ -426,7 +427,6 @@ function FileImport() {
                       onChange={(e) => {
                         const next = { ...mapping, [f.id]: Number(e.target.value) }
                         setMapping(next)
-                        if (f.id === 'category') setBackfill(next.category >= 0)
                       }}
                     >
                       <option value={-1}>（使わない）</option>
@@ -489,12 +489,18 @@ function FileImport() {
             </table>
           </div>
           <label className="small block">
-            <input type="checkbox" checked={backfill} onChange={(e) => setBackfill(e.target.checked)} /> 過去の問い合わせとして取り込む（試算用）
+            <input type="checkbox" checked={backfill} onChange={(e) => setBackfill(e.target.checked)} /> 完了済みの問い合わせとして取り込む
           </label>
           <p className="muted small">
-            {backfill
-              ? `投稿・人の対応には回さない。個人情報の候補はすべて伏せる。試算は「閾値の調整」→「想定ラベル・過去の分類」（分類あり ${labeled} 件）`
-              : '通常の流れ（個人情報の確認・振り分け・Slack）に乗せる'}
+            {backfill ? (
+              <>
+                目的: 過去の分類と Jev の判定を比べ、自動で振り分ける閾値を決める（閾値の調整 →「想定ラベル・過去の分類」。分類あり {labeled} 件）。Jev の精度は上がりません。
+                <br />
+                Jev で判定（課金あり）して、Slack・人の対応には回さず完了にする
+              </>
+            ) : (
+              '通常の流れ（個人情報の確認・振り分け・Slack）に乗せる'
+            )}
           </p>
           <div className="row">
             <button type="button" disabled={busy || !enabled || !valid.length} onClick={() => void submit()}>
