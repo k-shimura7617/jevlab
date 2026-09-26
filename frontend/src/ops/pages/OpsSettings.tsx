@@ -26,11 +26,12 @@ function Section({ id, title, desc, children }: { id: string; title: string; des
   )
 }
 
-function Threshold({ label, value, onChange, note }: { label: string; value: number; onChange: (v: number) => void; note?: string }) {
+// 閾値の目盛りは 0.05 刻み（細かすぎても差が読めないため）。割合など閾値でないものは step で変える
+function Threshold({ label, value, onChange, note, step = 0.05 }: { label: string; value: number; onChange: (v: number) => void; note?: string; step?: number }) {
   return (
     <label className="threshold">
       <span>{label}</span>
-      <input type="range" min={0} max={1} step={0.01} value={value} onChange={(e) => onChange(Number(e.target.value))} aria-label={label} />
+      <input type="range" min={0} max={1} step={step} value={value} onChange={(e) => onChange(Number(e.target.value))} aria-label={label} />
       <span className="num">{value.toFixed(2)}</span>
       {note && <span className="muted small">{note}</span>}
     </label>
@@ -262,7 +263,7 @@ export function OpsSettings() {
       </Section>
 
       <Section id="audit" title="抜き取り確認" desc="自動分の一部を人が確認">
-        <Threshold label="抜き取る割合" value={draft.audit_rate} onChange={(v) => set((s) => ({ ...s, audit_rate: v }))} note={pct(draft.audit_rate, 0)} />
+        <Threshold label="抜き取る割合" step={0.01} value={draft.audit_rate} onChange={(v) => set((s) => ({ ...s, audit_rate: v }))} note={pct(draft.audit_rate, 0)} />
       </Section>
 
       <Section id="sla" title="対応目安" desc="営業時間で数える">

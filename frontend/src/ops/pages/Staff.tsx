@@ -175,7 +175,7 @@ export function Staff() {
             type="range"
             min={0}
             max={1}
-            step={0.01}
+            step={0.05}
             value={a.threshold}
             aria-label="自動で割り当てる確率"
             onChange={(e) => set((s) => ({ ...s, assign: { ...s.assign, threshold: Number(e.target.value) } }))}
