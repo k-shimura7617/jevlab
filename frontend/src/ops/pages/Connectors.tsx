@@ -109,7 +109,7 @@ function SlackPurge({ purge, onStarted }: { purge: SlackStatus['purge']; onStart
         Slack の投稿を全削除
       </button>
       {purge.running && <span className="small">削除中 {purge.deleted} / {purge.total || '…'}</span>}
-      {!purge.running && purge.finished_at && !purge.error && <span className="muted small">{purge.deleted} 件を削除しました</span>}
+      {!purge.running && purge.finished_at && !purge.error && <span className="muted small">{purge.deleted} 件を削除しました{purge.skipped > 0 && `（消せない ${purge.skipped} 件は残しました）`}</span>}
       {purge.error && <span className="error small">{purge.error}</span>}
       {error && <span className="error small">{error}</span>}
     </div>

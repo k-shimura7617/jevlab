@@ -272,7 +272,7 @@ export interface SlackStatus {
   inbound: { state: SlackState; detail: string; count: number; last_error: string | null }
   mirrorable: string[]
   // 投稿先のチャンネルから jevlab の投稿を消す作業
-  purge: { running: boolean; deleted: number; total: number; error: string | null; finished_at: string | null }
+  purge: { running: boolean; deleted: number; skipped: number; total: number; error: string | null; finished_at: string | null }
 }
 
 export interface CategoryDef {

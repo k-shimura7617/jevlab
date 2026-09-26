@@ -79,8 +79,8 @@ class SlackApi(Protocol):
         """チャンネルにあるボット自身の投稿（スレッドの返信を含む）の ts を、返信を先にして返す。"""
         ...
 
-    def delete_message(self, channel: str, ts: str) -> None:
-        """ボット自身の投稿を消す（もう無ければ何もしない）。"""
+    def delete_message(self, channel: str, ts: str) -> bool:
+        """ボット自身の投稿を消す。消せない投稿（参加の知らせなど）なら False を返す（もう無ければ True）。"""
         ...
 
 
@@ -92,6 +92,10 @@ class InboundHandle(Protocol):
 
 # 受信の開始: メッセージを受け取る関数を渡すと、接続して閉じるためのハンドルを返す
 InboundFactory = Callable[[Callable[[Mapping[str, object]], None]], InboundHandle]
+
+
+# 消す対象にするボットの投稿の種類（通常の投稿・チャンネルにも出した返信）。参加の知らせなどは消せない
+_OWN_SUBTYPES: Final = frozenset({None, "bot_message", "thread_broadcast"})
 
 
 class SlackSendError(Exception):
@@ -114,6 +118,8 @@ class PurgeStatus(BaseModel):
 
     running: bool = False
     deleted: int = 0
+    # 消せなかった投稿（参加の知らせなど、ボットの投稿でも消せないもの）
+    skipped: int = 0
     total: int = 0
     error: str | None = None
     finished_at: str | None = None
@@ -200,8 +206,9 @@ class SdkSlackApi:
 
     def own_messages(self, channel: str, bot_user: str) -> list[str]:
         def mine(m: object) -> bool:
-            # ほかのボット・人の投稿は消さない（消せない）ので、ボット自身のユーザーの投稿だけ
-            return isinstance(m, dict) and m.get("user") == bot_user
+            # ほかのボット・人の投稿は消さない（消せない）ので、ボット自身のユーザーの投稿だけ。
+            # チャンネルへの参加の知らせ（subtype: channel_join）などもボットのユーザーになるが、消せないので除く
+            return isinstance(m, dict) and m.get("user") == bot_user and m.get("subtype") in _OWN_SUBTYPES
 
         def collect() -> list[str]:
             parents: list[str] = []
@@ -227,17 +234,21 @@ class SdkSlackApi:
 
         return self._call(f"{channel} の投稿の一覧", collect)
 
-    def delete_message(self, channel: str, ts: str) -> None:
+    def delete_message(self, channel: str, ts: str) -> bool:
         from slack_sdk.errors import SlackApiError
 
-        def delete() -> None:
+        def delete() -> bool:
             try:
                 self.client.chat_delete(channel=channel, ts=ts)
             except SlackApiError as e:
-                if e.response.get("error") != "message_not_found":
+                code = e.response.get("error")
+                if code == "cant_delete_message":
+                    return False
+                if code != "message_not_found":
                     raise
+            return True
 
-        self._call(f"{channel} の投稿の削除", delete)
+        return self._call(f"{channel} の投稿の削除", delete)
 
     def add_reaction(self, channel: str, ts: str, name: str) -> None:
         from slack_sdk.errors import SlackApiError
@@ -726,8 +737,11 @@ class SlackConnector:
             targets = [(c, ts) for c in channels for ts in await asyncio.to_thread(api.own_messages, c, self.bot_user)]
             st.total = len(targets)
             for channel, ts in targets:
-                await asyncio.to_thread(api.delete_message, channel, ts)
-                st.deleted += 1
+                if await asyncio.to_thread(api.delete_message, channel, ts):
+                    st.deleted += 1
+                else:
+                    log.info("Slack の %s の投稿 %s は消せないので飛ばしました", channel, ts)
+                    st.skipped += 1
             # 消した投稿への返信・✅ を付けに行かないよう、件に控えた Slack の投稿を忘れる
             self.pipeline.store.clear_slack_refs()
         except SlackSendError as e:
