@@ -5,7 +5,6 @@ import { pct, TARGET_SHORT, usd } from '../format'
 import { ops } from '../ops/api'
 import { Page, useShell, useTitle } from '../shell'
 import { tools, type Level, type ReplyCheck, type ReplyMeta, type ReplyResult, type RewriteResult } from './api'
-import { Hint } from '../components/hint'
 import { useElapsed } from './common'
 import { Sentences } from './Sentences'
 
@@ -62,7 +61,7 @@ function Compare({ before, after }: { before: ReplyResult; after: ReplyResult })
         <tr>
           <th>観点</th>
           <th>下書き</th>
-          <th>AI修正案</th>
+          <th>AI返信案</th>
         </tr>
       </thead>
       <tbody>
@@ -107,11 +106,7 @@ export function ReplyPage() {
   const [after, setAfter] = useState<{ draft: string; result: ReplyResult } | null>(null)
   const [afterBusy, setAfterBusy] = useState(false)
   const elapsed = useElapsed(rwBusy)
-  const [policyOpen, setPolicyOpen] = useState(false)
-  const [draftBusy, setDraftBusy] = useState(false)
-  const [draftNote, setDraftNote] = useState<string | null>(null)
-  const draftElapsed = useElapsed(draftBusy)
-  // 判定をやり直したら、それより前に頼んだ修正案・再判定の応答は捨てる
+  // 判定をやり直したら、それより前に頼んだ AI返信案・再判定の応答は捨てる
   const generation = useRef(0)
   const policyText = policy ?? meta?.default_policy ?? ''
 
@@ -133,22 +128,6 @@ export function ReplyPage() {
       .catch((e: unknown) => setError(errorMessage(e)))
   }, [itemId])
 
-  // 問い合わせから、返信の案を Claude に書いてもらう（下書きの欄に入れる）
-  const askDraft = () => {
-    if (!inquiry.trim() || draftBusy) return
-    if (draft.trim() && !window.confirm('いまの下書きを、AI の案で置き換えますか？')) return
-    setDraftBusy(true)
-    setDraftNote(null)
-    setError(null)
-    tools
-      .replyDraft({ inquiry: inquiry.trim(), policy: policyText, model: meta?.default_model ?? 'sonnet' })
-      .then((r) => {
-        setDraft(r.rewritten)
-        setDraftNote(`${r.model} ／ ${(r.latency_ms / 1000).toFixed(1)} 秒${r.changes.length ? `・${r.changes.join('・')}` : ''}`)
-      })
-      .catch((e: unknown) => setError(errorMessage(e)))
-      .finally(() => setDraftBusy(false))
-  }
   const stale = judged !== null && (inquiry.trim() !== judged.inquiry || draft.trim() !== judged.draft)
   const check = () => {
     if (!target || !inquiry.trim() || !draft.trim() || busy) return
@@ -167,23 +146,28 @@ export function ReplyPage() {
       .catch((e: unknown) => setError(errorMessage(e)))
       .finally(() => setBusy(false))
   }
+  // AI返信案: 下書きがあれば直した案（判定したばかりなら指摘を渡す）、なければ問い合わせから書いた案
   const makeRewrite = () => {
-    if (!judged || rwBusy) return
+    if (!inquiry.trim() || rwBusy) return
     const gen = generation.current
+    const model = meta?.default_model ?? 'sonnet'
+    const fresh = judged !== null && !stale ? judged : null
     setRwBusy(true)
     setRwError(null)
-    tools
-      .replyRewrite({
-        inquiry: judged.inquiry,
-        draft: judged.draft,
-        policy: policyText,
-        findings: findingsOf(judged.result),
-        model: meta?.default_model ?? 'sonnet',
-      })
-      .then((r) => {
+    const request = draft.trim()
+      ? tools.replyRewrite({
+          inquiry: inquiry.trim(),
+          draft: draft.trim(),
+          policy: policyText,
+          findings: fresh ? findingsOf(fresh.result) : [],
+          model,
+        })
+      : tools.replyDraft({ inquiry: inquiry.trim(), policy: policyText, model })
+    request
+      .then((res) => {
         if (gen !== generation.current) return
-        setRewrite(r)
-        setFixed(r.rewritten)
+        setRewrite(res)
+        setFixed(res.rewritten)
         setAfter(null)
       })
       .catch((e: unknown) => setRwError(errorMessage(e)))
@@ -238,16 +222,9 @@ export function ReplyPage() {
             お客様の問い合わせ
           </label>
           <textarea id="reply-inquiry" rows={5} maxLength={meta?.max_chars ?? 4000} value={inquiry} onChange={(e) => setInquiry(e.target.value)} />
-          <div className="draft-head">
-            <label className="small" htmlFor="reply-draft">
-              返信の下書き
-            </label>
-            <span className="spacer" />
-            <button type="button" className="rw-btn" disabled={draftBusy || !inquiry.trim()} onClick={askDraft}>
-              {draftBusy ? `AI が作成中…（${draftElapsed} 秒）` : '返信の案を AI に聞く（Claude）'}
-            </button>
-          </div>
-          {draftNote && <div className="muted small">{draftNote}</div>}
+          <label className="small" htmlFor="reply-draft">
+            返信の下書き
+          </label>
           <textarea
             id="reply-draft"
             rows={6}
@@ -261,15 +238,10 @@ export function ReplyPage() {
               }
             }}
           />
-          <div className="policy-row">
-            <button type="button" className="secondary" aria-expanded={policyOpen} onClick={() => setPolicyOpen((v) => !v)}>
-              約束してよい範囲（方針）{policyOpen ? 'を閉じる' : 'を見る・変える'}
-            </button>
-            <Hint text={`判定と AI の案は、これを超える約束をしていないかを見ます。\n${policyText}`} />
-          </div>
-          {policyOpen && (
-            <textarea className="policy-box" aria-label="約束してよい範囲" rows={4} maxLength={1000} value={policyText} onChange={(e) => setPolicy(e.target.value)} />
-          )}
+          <label className="small" htmlFor="reply-policy">
+            方針
+          </label>
+          <textarea id="reply-policy" className="policy-box" rows={4} maxLength={1000} value={policyText} onChange={(e) => setPolicy(e.target.value)} />
           <div className="row judge-row">
             <button type="button" className="judge-btn" title="Ctrl+Enter" disabled={busy || !inquiry.trim() || !draft.trim() || !target} onClick={check}>
               {busy ? '判定中…' : '判定する'}
@@ -294,49 +266,52 @@ export function ReplyPage() {
         ) : (
           <section className="panel tone-empty">
             <p className="muted">
-              <Sentences text="問い合わせと下書きを入れて「判定する」を押してください。下書きがなければ「返信の案を AI に聞く」で作れます。" />
+              <Sentences text="問い合わせと下書きを入れて「判定する」を押してください。下書きがなければ、下の「AI返信案の作成」で作れます。" />
             </p>
           </section>
         )}
       </div>
 
-      {r && (
-        <section className="panel rewrite" data-testid="reply-rewrite">
-          <div className="panel-head">
-            <h2>AI修正案（Claude）</h2>
-            <button type="button" className="rw-btn" disabled={rwBusy || busy || stale} onClick={makeRewrite}>
-              {rwBusy ? `作成中…（${elapsed} 秒）` : 'AI修正案の作成'}
-            </button>
-          </div>
-          {rwError && <div className="error small">{rwError}</div>}
-          {rewrite && (
-            <>
-              <textarea aria-label="AI修正案" rows={7} value={fixed} onChange={(e) => setFixed(e.target.value)} />
-              {rewrite.changes.length > 0 && (
-                <ul className="small">
-                  {rewrite.changes.map((c, i) => (
-                    <li key={i}>{c}</li>
-                  ))}
-                </ul>
-              )}
-              <div className="row">
-                <button type="button" disabled={afterBusy || !fixed.trim() || !target} onClick={checkFixed}>
+      <section className="panel rewrite" data-testid="reply-rewrite">
+        <div className="panel-head">
+          <h2>AI返信案（Claude）</h2>
+          <button type="button" className="rw-btn" disabled={rwBusy || busy || !inquiry.trim()} onClick={makeRewrite}>
+            {rwBusy ? `作成中…（${elapsed} 秒）` : 'AI返信案の作成'}
+          </button>
+        </div>
+        {rwError && <div className="error small">{rwError}</div>}
+        {rewrite && (
+          <>
+            <textarea aria-label="AI返信案" rows={7} value={fixed} onChange={(e) => setFixed(e.target.value)} />
+            {rewrite.changes.length > 0 && (
+              <ul className="small">
+                {rewrite.changes.map((c, i) => (
+                  <li key={i}>{c}</li>
+                ))}
+              </ul>
+            )}
+            <div className="row">
+              <button type="button" disabled={!fixed.trim()} onClick={() => setDraft(fixed.trim())}>
+                採用（下書きに入れる）
+              </button>
+              {r && (
+                <button type="button" className="secondary" disabled={afterBusy || !fixed.trim() || !target} onClick={checkFixed}>
                   {afterBusy ? '判定中…' : 'この案を判定する'}
                 </button>
-                <span className="muted small">
-                  {rewrite.model} ／ {(rewrite.latency_ms / 1000).toFixed(1)} 秒
-                </span>
-              </div>
-              {after && (
-                <>
-                  {after.draft !== fixed.trim() && <p className="warn-text small">編集前の案の比較</p>}
-                  <Compare before={r} after={after.result} />
-                </>
               )}
-            </>
-          )}
-        </section>
-      )}
+              <span className="muted small">
+                {rewrite.model} ／ {(rewrite.latency_ms / 1000).toFixed(1)} 秒
+              </span>
+            </div>
+            {r && after && (
+              <>
+                {after.draft !== fixed.trim() && <p className="warn-text small">編集前の案の比較</p>}
+                <Compare before={r} after={after.result} />
+              </>
+            )}
+          </>
+        )}
+      </section>
     </Page>
   )
 }
