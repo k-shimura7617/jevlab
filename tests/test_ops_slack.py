@@ -27,6 +27,8 @@ class FakeApi:
         self.lose_response = False
         self.auth_error: SlackSendError | None = None
         self.auth_calls = 0
+        self.reactions: list[tuple[str, str, str]] = []
+        self.fail_reaction: SlackSendError | None = None
 
     def auth_test(self) -> str:
         self.auth_calls += 1
@@ -52,6 +54,11 @@ class FakeApi:
             if c == channel and marker in t and self.threads[i] is None:
                 return f"{i + 1}.0"
         return None
+
+    def add_reaction(self, channel: str, ts: str, name: str) -> None:
+        if self.fail_reaction is not None:
+            raise self.fail_reaction
+        self.reactions.append((channel, ts, name))
 
 
 class FakeHandle:
@@ -211,7 +218,7 @@ async def test_escalation_thread_mentions_dispatcher_when_unassigned(tmp_path: P
     item_id = escalate(conn, assign_suggestion="tamura")
     await conn.tick()
     (_, parent), (_, reply) = api.sent
-    assert f"<http://127.0.0.1:8000/ops/escalations?id={item_id}|画面で開く>" in parent
+    assert f"<http://127.0.0.1:8000/ops/items/{item_id}|画面で開く>" in parent
     assert api.threads == [None, "1.0"]
     # 推定した担当（田村）は名前だけ。呼び出すのは振り分け担当（佐藤）
     assert "<@U0SATO001>" in reply and "推定: 田村" in reply and "U0TAMURA1" not in reply
@@ -390,3 +397,83 @@ async def test_reminder_after_sla_and_skips_items_assigned_meanwhile(tmp_path: P
     await conn.tick()
     reminders = [t for _, t in api.sent if "対応目安" in t]
     assert reminders == ["<@U0SATO001> 対応目安を過ぎています。担当が未定です"]
+
+
+# ---- 振り分けた件の親の投稿と、対応完了 ----
+
+C_COMPLAINT = "C0COMPLAIN1"
+
+
+def route(conn: SlackConnector, category: str = "complaint", **update: object) -> str:
+    store = conn.pipeline.store
+    item = store.add_item(IngestRequest(channel="mail", subject="箱が潰れていました", body="本文"))
+    routed = store.update(item.id, lambda i: i.model_copy(update={"status": "routed", "category": category, **update}))
+    conn.pipeline._post_routed(routed, by="jevlab（Jev）")
+    return item.id
+
+
+@pytest.mark.anyio
+async def test_routed_post_links_to_item_and_close_replies_with_reaction(tmp_path: Path) -> None:
+    api = FakeApi()
+    conn = make(tmp_path, api, None, outbound=True, channel_map={"#cs-クレーム": C_COMPLAINT})
+    with_staff(conn, app_url="http://127.0.0.1:8000")
+    await conn.tick()
+    item_id = route(conn)
+    await conn.tick()
+    ((channel, parent),) = api.sent
+    # 振り分けの投稿にも件の詳細へのリンクを付け、親として記録する
+    assert channel == C_COMPLAINT and f"<http://127.0.0.1:8000/ops/items/{item_id}|画面で開く>" in parent
+    assert conn.pipeline.store.get(item_id).slack_ts == "1.0"
+    # 分類を変えずに完了 → スレッドに返信し、親に ✅ を付ける。新しい投稿は増えない
+    closed = conn.pipeline.close(item_id, None)
+    assert closed.status == "closed" and closed.category == "complaint"
+    await conn.tick()
+    assert api.sent[1:] == [(C_COMPLAINT, "対応完了（担当: 未割り当て）")] and api.threads[1:] == ["1.0"]
+    assert api.reactions == [(C_COMPLAINT, "1.0", "white_check_mark")]
+
+
+@pytest.mark.anyio
+async def test_close_with_fixed_category_notes_the_fix(tmp_path: Path) -> None:
+    api = FakeApi()
+    conn = make(tmp_path, api, None, outbound=True, channel_map={"#cs-クレーム": C_COMPLAINT})
+    with_staff(conn)
+    await conn.tick()
+    item_id = route(conn)
+    await conn.tick()
+    conn.pipeline.close(item_id, "inquiry")
+    await conn.tick()
+    reply = [t for (_, t), th in zip(api.sent, api.threads, strict=True) if th == "1.0"]
+    assert reply == ["対応完了（担当: 未割り当て）。分類を クレーム から 問い合わせ に修正"]
+    item = conn.pipeline.store.get(item_id)
+    assert item.category == "inquiry" and item.decided_by == "human"
+
+
+@pytest.mark.anyio
+async def test_failed_reaction_is_not_retried_and_does_not_duplicate_the_reply(tmp_path: Path) -> None:
+    api = FakeApi()
+    conn = make(tmp_path, api, None, outbound=True, channel_map={"#cs-クレーム": C_COMPLAINT})
+    with_staff(conn)
+    await conn.tick()
+    item_id = route(conn)
+    await conn.tick()
+    api.fail_reaction = SlackSendError("リアクションに失敗: missing_scope", permanent=True)
+    conn.pipeline.close(item_id, None)
+    await conn.tick()
+    await conn.tick()
+    assert len([t for t in api.sent if "対応完了" in t[1]]) == 1
+    assert "reactions:write" in (conn.status().outbound.last_error or "")
+
+
+@pytest.mark.anyio
+async def test_lost_response_of_routed_parent_is_not_duplicated(tmp_path: Path) -> None:
+    api = FakeApi()
+    conn = make(tmp_path, api, None, outbound=True, channel_map={"#cs-クレーム": C_COMPLAINT})
+    with_staff(conn)
+    await conn.tick()
+    api.lose_response = True
+    item_id = route(conn)
+    await conn.tick()
+    conn._backoff_until = 0.0
+    await conn.tick()
+    assert len(api.sent) == 1
+    assert conn.pipeline.store.get(item_id).slack_ts == "1.0"

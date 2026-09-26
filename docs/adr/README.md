@@ -19,6 +19,7 @@
 | [0011](0011-single-repo-vite-build.md) | 画面は同じリポジトリの Vite ビルドを FastAPI から配信する | 採用 |
 | [0012](0012-staging-copy-during-user-testing.md) | 利用者の動作確認中は、別のコピーで実装して区切りで反映する | 採用 |
 | [0013](0013-slack-socket-mode.md) | 実際の Slack とのつなぎ込みは Socket Mode と同期 SDK で行う | 採用 |
+| [0014](0014-close-routed-items-in-jevlab.md) | 振り分けた件も jevlab で完了にし、Slack にはスレッドの返信と ✅ で知らせる | 採用 |
 
 ## 運用のきまり
 
