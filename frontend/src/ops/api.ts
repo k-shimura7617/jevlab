@@ -86,6 +86,8 @@ export interface Item {
   assign_provisional: boolean
   updated_at: string
   closed_at: string | null
+  // 返信のいらない分類として自動で完了にした（人は見ていない）
+  auto_closed: boolean
   priority: Record<string, number>
   // 個人情報の確認に回った理由（確認待ちの件だけ）
   pii_flags: PiiFlag[]
@@ -283,6 +285,8 @@ export interface CategoryDef {
   // 振り分け先の疑似チャンネル（#…）
   channel: string
   active: boolean
+  // 返信のいらない分類。自動で振り分けた件は、投稿したうえで自動で完了にする
+  auto_close: boolean
 }
 
 export interface Settings {

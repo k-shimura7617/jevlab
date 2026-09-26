@@ -622,3 +622,39 @@ def test_purge_needs_mapped_channels(tmp_path: Path) -> None:
     conn = make(tmp_path, FakeApi(), None, outbound=True, channel_map={})
     with pytest.raises(ValueError, match="チャンネル ID"):
         conn.start_purge()
+
+
+def _route_as(conn: SlackConnector, category: str) -> str:
+    """確信度 0.99 で自動で振り分けになる件を作る（抜き取り確認はしない）。"""
+    store = conn.pipeline.store
+    settings = store.settings().model_copy(update={"audit_rate": 0.0})
+    store.put_settings(settings)
+    item = store.add_item(IngestRequest(channel="mail", subject="ありがとうございました", body="本文"))
+    item = store.update(item.id, lambda i: i.model_copy(update={"category": category, "confidence": 0.99}))
+    conn.pipeline._route(item, settings)
+    return item.id
+
+
+@pytest.mark.anyio
+async def test_no_reply_category_is_closed_with_a_check_mark(tmp_path: Path) -> None:
+    api = FakeApi()
+    conn = make(tmp_path, api, None, outbound=True, channel_map={"#cs-お礼": "C0THANKS01"})
+    await conn.tick()  # つないだ後の投稿だけを流す
+    item_id = _route_as(conn, "thanks")
+    item = conn.pipeline.store.get(item_id)
+    assert item.status == "closed" and item.auto_closed and item.assignee is None
+    await conn.tick()
+    # 内容を投稿し、スレッドには書き足さずに ✅ だけ付ける
+    assert [c for c, _ in api.sent] == ["C0THANKS01"] and "ありがとうございました" in api.sent[0][1]
+    assert api.reactions == [("C0THANKS01", "1.0", "white_check_mark")]
+
+
+@pytest.mark.anyio
+async def test_categories_needing_a_reply_stay_open(tmp_path: Path) -> None:
+    api = FakeApi()
+    conn = make(tmp_path, api, None, outbound=True, channel_map={"#cs-問い合わせ": "C0INQUIRY1"})
+    await conn.tick()
+    item_id = _route_as(conn, "inquiry")
+    assert conn.pipeline.store.get(item_id).status == "routed"
+    await conn.tick()
+    assert [c for c, _ in api.sent] == ["C0INQUIRY1"] and not api.reactions

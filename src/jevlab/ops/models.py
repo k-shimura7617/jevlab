@@ -128,6 +128,8 @@ class Item(BaseModel):
     backfill: bool = False
     updated_at: str
     closed_at: str | None = None
+    # 返信のいらない分類として自動で完了にした（人は見ていない）
+    auto_closed: bool = False
 
 
 class Event(BaseModel):
@@ -378,6 +380,8 @@ class CategoryDef(BaseModel):
     channel: str = Field(min_length=2, max_length=40, pattern=r"^#\S+$")
     # 廃止した分類は、仕分けの選択肢・確認のボタン・完了の選択から外す（過去の件の表示には残す）
     active: bool = True
+    # 返信のいらない分類（お礼など）。自動で振り分けた件は、投稿したうえで自動で完了にする
+    auto_close: bool = False
 
 
 def _default_categories() -> list[CategoryDef]:
@@ -387,7 +391,9 @@ def _default_categories() -> list[CategoryDef]:
     if not isinstance(criteria, dict):
         raise TypeError("メール仕分けの分類の説明が、キーごとの形ではありません")
     return [
-        CategoryDef(key=k, label=label, criteria=str(criteria[k]), channel=_DEFAULT_CHANNELS[k])
+        CategoryDef(
+            key=k, label=label, criteria=str(criteria[k]), channel=_DEFAULT_CHANNELS[k], auto_close=k == "thanks"
+        )
         for k, label in CATEGORY_LABELS.items()
     ]
 
@@ -452,6 +458,10 @@ class Settings(BaseModel):
         if c is None:
             return key or "-"
         return c.label if c.active else f"{c.label}（廃止）"
+
+    def auto_closes(self, key: str | None) -> bool:
+        """返信のいらない分類として、自動で振り分けた件を自動で完了にするか。"""
+        return any(c.key == key and c.active and c.auto_close for c in self.categories)
 
     def route_channel(self, key: str | None) -> str:
         """分類の振り分け先。知らない分類は受け皿の分類のチャンネル。"""

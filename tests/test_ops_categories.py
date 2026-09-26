@@ -120,3 +120,9 @@ def test_tuning_counts_only_the_current_definition_by_default(client: TestClient
     _put_categories(client, edited)
     assert client.get("/api/ops/tuning", params={"source": "expected"}).json()["n"] == 0
     assert client.get("/api/ops/tuning", params={"source": "expected", "all_versions": True}).json()["n"] == 2
+
+
+def test_auto_close_defaults_to_thanks_only() -> None:
+    s = Settings()
+    assert [c.key for c in s.categories if c.auto_close] == ["thanks"]
+    assert s.auto_closes("thanks") and not s.auto_closes("inquiry") and not s.auto_closes(None)
