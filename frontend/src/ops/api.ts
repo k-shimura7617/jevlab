@@ -204,6 +204,9 @@ export interface SimulatorState {
   playing: boolean
   interval_s: number
   cursor: number
+  // 高速（間隔なし・並列数を上げる）と、そのときの並列数
+  fast: boolean
+  fast_workers: number
   total: number
 }
 
@@ -282,7 +285,7 @@ export interface Settings {
   slack: SlackSettings
   // エスカレーションの対応目安（営業時間で数える）
   sla: { hours: number; days: number[]; start: string; end: string; timezone: string; holidays: string[] }
-  simulator: { playing: boolean; interval_s: number; cursor: number }
+  simulator: { playing: boolean; interval_s: number; cursor: number; fast: boolean }
   priority_weights: Record<string, number>
   staff: StaffMember[]
   assign: { auto: boolean; threshold: number; use_examples: boolean; max_examples: number; scope_draft_min: number }
@@ -424,7 +427,7 @@ export const ops = {
   piiEval: () => call<PiiEval>('GET', '/pii-eval'),
   settings: () => call<Settings>('GET', '/settings'),
   putSettings: (s: Settings) => call<Settings>('PUT', '/settings', s),
-  simulator: (c: { playing?: boolean; interval_s?: number; step?: boolean; rewind?: boolean }) =>
+  simulator: (c: { playing?: boolean; interval_s?: number; fast?: boolean; step?: boolean; rewind?: boolean }) =>
     call<SimulatorState>('POST', '/simulator', c),
   reset: () => call<{ detail: string }>('POST', '/reset'),
   slack: () => call<SlackStatus>('GET', '/slack'),

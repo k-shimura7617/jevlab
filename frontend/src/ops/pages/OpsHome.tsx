@@ -88,10 +88,15 @@ function SimulatorPanel() {
         </label>
         <select
           id="sim-interval"
-          value={sim.interval_s}
+          value={sim.fast ? 'fast' : sim.interval_s}
           disabled={busy}
-          onChange={(e) => run(() => ops.simulator({ interval_s: Number(e.target.value) }))}
+          onChange={(e) =>
+            run(() =>
+              ops.simulator(e.target.value === 'fast' ? { fast: true } : { fast: false, interval_s: Number(e.target.value) }),
+            )
+          }
         >
+          <option value="fast">なし（高速・並列 {sim.fast_workers}）</option>
           {[...new Set([0.5, 1, 2, 4, 8, 15, sim.interval_s])].sort((a, b) => a - b).map((s) => (
             <option key={s} value={s}>
               {s} 秒ごと
@@ -121,6 +126,9 @@ function SimulatorPanel() {
           受付箱を空にする
         </button>
       </div>
+      {sim.fast && overview?.kev && (
+        <div className="warn-box small">個人情報のガードに Kev を使う設定です。Kev は 1 件ずつなので、ガードは速くなりません</div>
+      )}
       {error && <div className="error small">{error}</div>}
     </section>
   )

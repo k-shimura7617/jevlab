@@ -65,7 +65,11 @@ async def run_simulator(pipeline: Pipeline) -> None:
     while True:
         try:
             settings = pipeline.store.settings().simulator
-            if settings.playing:
+            if settings.playing and settings.fast:
+                # 間隔なしで残りを一度に受信する（最後まで流すと止まる）
+                while ingest_next(pipeline):
+                    pass
+            elif settings.playing:
                 ingest_next(pipeline)
             delay = settings.interval_s if settings.playing else 0.5
         except Exception:
