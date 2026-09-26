@@ -284,6 +284,22 @@ def test_parse_import_file(client: TestClient) -> None:
     assert bad.status_code == 422 and ".eml" in bad.text
 
 
+def test_fast_simulator_ingests_everything_at_once(client: TestClient) -> None:
+    configure(client, guard__use_model=False, guard__human_check=False)
+    state = client.post("/api/ops/simulator", json={"fast": True, "playing": True}).json()
+    assert state["fast"] is True and state["fast_workers"] > 3
+    deadline = time.monotonic() + 15
+    while time.monotonic() < deadline:
+        ov = client.get("/api/ops/overview").json()
+        if ov["simulator"]["cursor"] == ov["simulator"]["total"] and ov["flow"]["waiting"] == 0:
+            break
+        time.sleep(0.1)
+    ov = client.get("/api/ops/overview").json()
+    # 間隔なしで全件を受信し、最後まで流すと止まる
+    assert ov["simulator"]["cursor"] == ov["simulator"]["total"] and ov["simulator"]["playing"] is False
+    assert ov["flow"]["received"] == ov["simulator"]["total"] and ov["flow"]["waiting"] == 0
+
+
 def test_disconnected_connector_rejects_ingest(client: TestClient) -> None:
     settings = client.get("/api/ops/settings").json()
     settings["connectors"]["mail"] = False

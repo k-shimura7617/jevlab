@@ -32,6 +32,7 @@ from jevlab.ops.pii import ACTIONS, PII_LABELS, PII_TYPES, PiiType, Span
 from jevlab.ops.pipeline import (
     ESCALATION_CHANNEL,
     EXAMPLE_DECISIONS,
+    FAST_WORKERS,
     INBOUND_CHANNEL,
     ROUTE_CHANNELS,
     Pipeline,
@@ -237,7 +238,7 @@ async def overview(pipeline: PipelineDep) -> Overview:
         model_accuracy=_accuracy(items, final=False),
         cost_usd=sum(i.cost_usd for i in items),
         audit_pending=sum(1 for i in items if i.audit and i.audit_result is None and i.status == "routed"),
-        simulator={**settings.simulator.model_dump(), "total": len(demo_inbox())},
+        simulator={**settings.simulator.model_dump(), "total": len(demo_inbox()), "fast_workers": FAST_WORKERS},
         recent=store.recent_events(40),
         kev=await _kev_health(uses) if (uses := kev_uses(settings)) else None,
     )
@@ -651,6 +652,8 @@ async def put_settings(settings: Settings, pipeline: PipelineDep) -> Settings:
 class SimulatorControl(BaseModel):
     playing: bool | None = None
     interval_s: float | None = Field(None, ge=0.5, le=60)
+    # 高速（間隔なし・並列数を上げる）
+    fast: bool | None = None
     # 1 件だけ流す
     step: bool = False
     # 先頭に戻す（受信済みの件は消さない）
@@ -668,6 +671,8 @@ async def simulator(req: SimulatorControl, pipeline: PipelineDep) -> dict[str, o
             update["playing"] = req.playing
         if req.interval_s is not None:
             update["interval_s"] = req.interval_s
+        if req.fast is not None:
+            update["fast"] = req.fast
         if req.rewind:
             update["cursor"] = 0
         return s.model_copy(update={"simulator": sim.model_copy(update=update)})
@@ -675,7 +680,7 @@ async def simulator(req: SimulatorControl, pipeline: PipelineDep) -> dict[str, o
     store.update_settings(change)
     if req.step:
         ingest_next(pipeline)
-    return {**store.settings().simulator.model_dump(), "total": len(demo_inbox())}
+    return {**store.settings().simulator.model_dump(), "total": len(demo_inbox()), "fast_workers": FAST_WORKERS}
 
 
 @router.post("/reset")

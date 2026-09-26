@@ -346,6 +346,8 @@ class SimulatorSettings(BaseModel):
     playing: bool = False
     interval_s: float = Field(4.0, ge=0.5, le=60)
     cursor: int = 0
+    # 高速: 間隔なしで残りを一度に受信し、処理の並列数を上げる（Kev を使わない構成向け）
+    fast: bool = False
 
 
 class Settings(BaseModel):

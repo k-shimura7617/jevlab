@@ -61,7 +61,10 @@ ESCALATION_CHANNEL: Final = "#cs-エスカレーション"
 INBOUND_CHANNEL: Final = "#お問い合わせ窓口"
 # Kev は CPU で動くため 1 本ずつ、Jev は並列にしてもコストは同じ
 _KEV_CONCURRENCY: Final = 1
-_JEV_CONCURRENCY: Final = 4
+# 同時に処理する件の数（ふだん・高速）。Jev の同時の問い合わせは、高速のときの件数まで許す
+WORKERS: Final = 3
+FAST_WORKERS: Final = 16
+_JEV_CONCURRENCY: Final = FAST_WORKERS
 
 
 class BackendLike(Protocol):
@@ -886,7 +889,10 @@ class Pipeline:
 
 # ---- 常駐処理 ----
 
-_WORKERS: Final = 3
+
+def capacity(pipeline: Pipeline) -> int:
+    """同時に処理する件の数。受信シミュレータが高速のときは増やす。"""
+    return FAST_WORKERS if pipeline.store.settings().simulator.fast else WORKERS
 
 
 async def run_worker(pipeline: Pipeline) -> None:
@@ -894,38 +900,34 @@ async def run_worker(pipeline: Pipeline) -> None:
     recovered = pipeline.store.recover()
     if recovered:
         log.info("処理中のまま残っていた %d 件を処理待ちに戻しました", recovered)
-    slots = asyncio.Semaphore(_WORKERS)
     running: set[asyncio.Task[None]] = set()
 
-    async def work(it: Item) -> None:
-        try:
-            await pipeline.process(it)
-        finally:
-            slots.release()
+    async def idle() -> None:
+        pipeline.wake.clear()
+        with contextlib.suppress(TimeoutError):
+            await asyncio.wait_for(pipeline.wake.wait(), timeout=1.0)
 
     def done(task: asyncio.Task[None]) -> None:
         running.discard(task)
+        # 空きができたので、待っている件を取りに行く
+        pipeline.wake.set()
         if not task.cancelled() and task.exception() is not None:
             # process の中でも記録できなかった失敗（保存先のエラーなど）。件は次回起動時に処理待ちへ戻る
             log.error("件の処理が異常終了しました", exc_info=task.exception())
 
     try:
         while True:
-            await slots.acquire()
             try:
-                item = pipeline.store.claim_next()
+                full = len(running) >= capacity(pipeline)
+                item = None if full else pipeline.store.claim_next()
             except Exception:
-                slots.release()
                 log.exception("処理待ちの件を取り出せませんでした。1 秒後に再試行します")
                 await asyncio.sleep(1.0)
                 continue
             if item is None:
-                slots.release()
-                pipeline.wake.clear()
-                with contextlib.suppress(TimeoutError):
-                    await asyncio.wait_for(pipeline.wake.wait(), timeout=1.0)
+                await idle()
                 continue
-            task = asyncio.create_task(work(item))
+            task = asyncio.create_task(pipeline.process(item))
             running.add(task)
             task.add_done_callback(done)
     finally:
