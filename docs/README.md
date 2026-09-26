@@ -12,15 +12,16 @@ jevlab は、TypeSafe の System One モデル **Jev**（と互換のローカ�
 1. [architecture.md](architecture.md) — 全体の構成、1 件の流れ、データ、API、安全の境界
 2. [jev.md](jev.md) — Jev / TypeSafe の考え方と、このアプリで使った型・パターン
 3. [adr/](adr/README.md) — 設計判断の記録（なぜそうしたか、何を捨てたか）
-4. [research/](research/) — Jev の紹介動画などから得た知見と、改善・新機能の提案（別途作成）
+4. [research/](research/) — Jev の紹介動画などから得た知見と、改善・新機能の提案
 
 ### 操作を覚えたい人
 
-- [walkthrough.md](walkthrough.md) — 画面の機能を項目ごとに、手順・確かめること・分かることの順で案内する手順書（別途作成）
+- [walkthrough.md](walkthrough.md) — 画面の機能を項目ごとに、手順・確かめること・分かることの順で案内する手順書
+- [slack-setup.md](slack-setup.md) — 実際の Slack とつなぐ手順（アプリの作成・トークン・チャンネル・画面の設定・動作の確認）
 
 ### 新しいセッション（別の Claude Code）で作業を引き継ぐ場合
 
-1. [handoff.md](handoff.md) — 引き継ぎ資料。現在の状態、守るべき約束（秘密情報の扱い・課金・動作確認中のサーバに触れないこと）、進行中の作業と次の一手（別途作成）
+1. [handoff.md](handoff.md) — 引き継ぎ資料。現在の状態、守るべき約束（秘密情報の扱い・課金・動作確認中のサーバに触れないこと）、進行中の作業と次の一手
 2. [architecture.md](architecture.md) と [adr/](adr/README.md) — コードを読む前の地図
 3. [jev.md](jev.md) — 質問（criteria）を書くときの約束ごと
 
@@ -32,6 +33,7 @@ jevlab は、TypeSafe の System One モデル **Jev**（と互換のローカ�
 | [jev.md](jev.md) | System One の考え方、Choice / Score / Noul、state と criteria の書き方、料金と上限、Kev 互換、使ったパターン | 開発者・引き継ぎ |
 | [adr/](adr/README.md) | 設計判断の記録（MADR 形式） | 開発者・レビュアー |
 | [walkthrough.md](walkthrough.md) | 画面操作の手順書 | 利用者 |
+| [slack-setup.md](slack-setup.md) | 実際の Slack とつなぐ手順 | 利用者 |
 | [handoff.md](handoff.md) | 別セッションへの引き継ぎ | 別セッションの Claude Code |
 | [research/](research/) | 調査メモと提案 | 開発者 |
 
