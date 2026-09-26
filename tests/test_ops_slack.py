@@ -28,6 +28,7 @@ class FakeApi:
         self.auth_error: SlackSendError | None = None
         self.auth_calls = 0
         self.reactions: list[tuple[str, str, str]] = []
+        self.deleted: list[str] = []
         self.fail_reaction: SlackSendError | None = None
 
     def auth_test(self) -> str:
@@ -59,6 +60,17 @@ class FakeApi:
         if self.fail_reaction is not None:
             raise self.fail_reaction
         self.reactions.append((channel, ts, name))
+
+    def own_messages(self, channel: str, bot_user: str) -> list[str]:
+        mine = [
+            (f"{i + 1}.0", th)
+            for i, ((c, _), th) in enumerate(zip(self.sent, self.threads, strict=True))
+            if c == channel and f"{i + 1}.0" not in self.deleted
+        ]
+        return [ts for ts, th in mine if th is not None] + [ts for ts, th in mine if th is None]
+
+    def delete_message(self, channel: str, ts: str) -> None:
+        self.deleted.append(ts)
 
 
 class FakeHandle:
@@ -546,3 +558,29 @@ async def test_close_stamps_every_post_of_the_item(tmp_path: Path) -> None:
     await conn.tick()
     stamped = {(c, ts) for c, ts, _ in api.reactions}
     assert (C_COMPLAINT, "1.0") in stamped and any(c == c_inq for c, _ in stamped)
+
+
+@pytest.mark.anyio
+async def test_purge_deletes_own_posts_and_forgets_refs(tmp_path: Path) -> None:
+    api = FakeApi()
+    conn = make(tmp_path, api, None, outbound=True, channel_map={ESCALATION_CHANNEL: C_ESC})
+    with_staff(conn)
+    await conn.tick()
+    item_id = escalate(conn)
+    await conn.tick()
+    assert len(api.sent) == 2  # 親とスレッドの返信
+    conn.start_purge()
+    assert conn._purge_task is not None
+    await conn._purge_task
+    st = conn.status().purge
+    assert not st.running and st.deleted == st.total == 2 and st.error is None
+    # 返信を先に消す
+    assert api.deleted == ["2.0", "1.0"]
+    item = conn.pipeline.store.get(item_id)
+    assert item.slack_ts is None and item.slack_channel is None and not item.slack_notified
+
+
+def test_purge_needs_mapped_channels(tmp_path: Path) -> None:
+    conn = make(tmp_path, FakeApi(), None, outbound=True, channel_map={})
+    with pytest.raises(ValueError, match="チャンネル ID"):
+        conn.start_purge()
