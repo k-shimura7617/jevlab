@@ -7,6 +7,7 @@ import { pct } from '../format'
 import { ops, type Item, type Meta, type PiiType, type Status } from './api'
 import { CategoryTag, costText, FieldsList, PiiText, PriorityBadge, StatusChip, Timeline } from './components'
 import { CHANNEL_SHORT, PRIORITY_LABELS, titleOf } from './format'
+import { canMail, replyHref } from './mail'
 import { SelectableText } from './SelectableText'
 import { POLL_MS, useOps, usePolling } from './state'
 
@@ -48,11 +49,6 @@ function Judgement({ item, meta }: { item: Item; meta: Meta | null }) {
       </div>
     </div>
   )
-}
-
-const replyHref = (item: Item): string => {
-  const subject = item.subject && !/^re:/i.test(item.subject) ? `Re: ${item.subject}` : item.subject || 'Re: お問い合わせの件'
-  return `mailto:${encodeURIComponent(item.from_address)}?subject=${encodeURIComponent(subject)}`
 }
 
 function QuickActions({
@@ -115,7 +111,7 @@ function QuickActions({
           返信内容の検討
         </Link>
       )}
-      {/@/.test(item.from_address) && (
+      {canMail(item) && (
         // jevlab はメールを送らない。お使いのメールソフトを、宛先と件名を入れた状態で開く
         <a className="btn secondary" href={replyHref(item)} target="_blank" rel="noopener noreferrer">
           メールで返信
