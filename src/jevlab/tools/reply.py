@@ -237,9 +237,9 @@ def build_result(
         note = "このまま送らないでください: " + "・".join(bad)
     elif bad or warn or lacks:
         verdict = "review"
-        note = "見直すと良くなる点があります: " + "・".join(bad + warn + [f"{x}がない" for x in lacks])
+        note = "見直してください: " + "・".join(bad + warn + [f"{x}がない" for x in lacks])
     else:
-        verdict, note = "ok", "このまま送って大丈夫そうです"
+        verdict, note = "ok", "このまま送って大丈夫です"
     return ReplyResult(
         verdict=verdict,
         verdict_note=note,

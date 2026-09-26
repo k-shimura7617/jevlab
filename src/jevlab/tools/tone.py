@@ -424,11 +424,11 @@ def verdict(aspects: list[AspectResult], shown: Collection[str], impression: str
     bad = [_problem(a) for a in relevant if a.level == "bad"]
     warn = [_problem(a) for a in relevant if a.level == "warn"]
     if impression == "offended" or any(a.id in ("harsh", "sarcasm") and a.level == "bad" for a in relevant):
-        head = "相手を不快にさせるおそれがあります"
+        head = "相手を不快にさせる表現があります"
         return "caution", f"{head}: {'・'.join(bad)}" if bad else f"{head}（受け取る印象から）"
     if bad or warn:
-        return "review", "見直すと良くなる点があります: " + "・".join(bad + warn)
-    return "ok", "このまま送って大丈夫そうです"
+        return "review", "見直してください: " + "・".join(bad + warn)
+    return "ok", "このまま送って大丈夫です"
 
 
 def build_result(

@@ -14,8 +14,8 @@ const SAMPLE = {
   inquiry: '先週注文したマグカップが割れて届きました。明日のプレゼントに使いたかったのに残念です。交換はできますか？',
   draft: '承知しました。すぐに新しいものを明日までにお届けします。送料もこちらで負担します。',
 }
-const LEVEL_TAG: Record<Level, string> = { ok: '問題なし', warn: '気になる', bad: '要見直し' }
-const VERDICT_LABELS = { ok: '送ってよさそう', review: '見直し推奨', caution: '要注意' } as const
+const LEVEL_TAG: Record<Level, string> = { ok: '問題なし', warn: '注意', bad: '要見直し' }
+const VERDICT_LABELS = { ok: 'OK', review: '見直し推奨', caution: '要注意' } as const
 
 function CheckCards({ result }: { result: ReplyResult }) {
   return (
@@ -134,6 +134,15 @@ export function ReplyPage() {
       .catch((e: unknown) => setError(errorMessage(e)))
   }, [itemId])
 
+  // 方針のモーダルは Esc でも閉じる
+  useEffect(() => {
+    if (!policyOpen) return
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') setPolicyOpen(false)
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [policyOpen])
   const stale = judged !== null && (inquiry.trim() !== judged.inquiry || draft.trim() !== judged.draft)
   const check = () => {
     if (!target || !inquiry.trim() || !draft.trim() || busy) return
@@ -262,18 +271,27 @@ export function ReplyPage() {
               {busy ? '判定中…' : '判定する'}
             </button>
           </div>
-          {/* 方針は枠の下端に置く。開くと上の余白に広がり、下書き・判定するは動かない */}
-          <div className="policy-area">
-            {policyOpen && (
-              <textarea id="reply-policy" className="policy-box" aria-label="方針" rows={4} maxLength={1000} value={policyText} onChange={(e) => setPolicy(e.target.value)} />
-            )}
-            <div className="row">
-              <button type="button" className="secondary policy-toggle" aria-expanded={policyOpen} onClick={() => setPolicyOpen((v) => !v)}>
-                方針 {policyOpen ? '▾' : '▸'}
-              </button>
-              <Hint text={'判定と AI返信案は、方針を超える約束をしていないかを見ます。\n開くと方針を直せます。'} />
-            </div>
+          {/* 方針はモーダルで開く（入力欄の大きさ・位置を変えない） */}
+          <div className="policy-area row">
+            <button type="button" className="secondary policy-toggle" onClick={() => setPolicyOpen(true)}>
+              方針
+            </button>
+            <Hint text={'判定と AI返信案は、方針を超える約束をしていないかを見ます。\n押すと方針を直せます。'} />
           </div>
+          {policyOpen && (
+            <>
+              <div className="sheet-backdrop" onClick={() => setPolicyOpen(false)} />
+              <div className="modal" role="dialog" aria-modal="true" aria-label="方針">
+                <h2>方針</h2>
+                <textarea id="reply-policy" className="policy-box" aria-label="方針" maxLength={1000} value={policyText} onChange={(e) => setPolicy(e.target.value)} />
+                <div className="row judge-row">
+                  <button type="button" onClick={() => setPolicyOpen(false)}>
+                    閉じる
+                  </button>
+                </div>
+              </div>
+            </>
+          )}
         </section>
 
         {r ? (
