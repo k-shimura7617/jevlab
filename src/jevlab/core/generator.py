@@ -15,7 +15,7 @@ import os
 import shutil
 import tempfile
 import time
-from collections.abc import Mapping
+from collections.abc import AsyncIterator, Mapping
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Final, Literal, Protocol, get_args
@@ -48,6 +48,12 @@ class GeneratedText:
 
 class Generator(Protocol):
     async def generate(self, req: GenerateRequest) -> GeneratedText: ...
+
+
+class StreamGenerator(Protocol):
+    def stream(self, req: GenerateRequest) -> AsyncIterator[str | GeneratedText]:
+        """書いた分から順に文字列を返し、最後に全体（GeneratedText）を 1 つ返す。構造化出力（schema）は使えない。"""
+        ...
 
 
 class GenerationError(RuntimeError):
@@ -102,6 +108,62 @@ class ClaudeCliGenerator:
             "--system-prompt", req.system,
         ]  # fmt: skip
         return base + (["--json-schema", json.dumps(req.schema, ensure_ascii=False)] if req.schema else [])
+
+    def stream_argv(self, req: GenerateRequest) -> list[str]:
+        """ストリーミング用。書いた分を順に受け取るため stream-json と部分メッセージを使う（構造化出力は使えない）。"""
+        if req.schema is not None:
+            raise GenerationError("ストリーミングでは構造化出力（schema）を使えません")
+        argv = self.argv(req)
+        i = argv.index("--output-format")
+        return [*argv[: i + 1], "stream-json", "--verbose", "--include-partial-messages", *argv[i + 2 :]]
+
+    async def stream(self, req: GenerateRequest) -> AsyncIterator[str | GeneratedText]:
+        if shutil.which(self.executable) is None:
+            raise GenerationError(
+                f"{self.executable} コマンドが見つかりません（Claude Code を入れてログインしてください）"
+            )
+        started = time.perf_counter()
+        proc = await asyncio.create_subprocess_exec(
+            *self.stream_argv(req),
+            stdin=asyncio.subprocess.PIPE,
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE,
+            cwd=_workdir(),
+            env=child_env(os.environ),
+            limit=4 * 1024 * 1024,  # 1 行が長い（最後の結果に全文が入る）ため、読み取りの上限を広げる
+        )
+        if proc.stdin is None or proc.stdout is None or proc.stderr is None:
+            raise GenerationError("claude -p の入出力を開けませんでした")
+        final: GeneratedText | None = None
+        try:
+            proc.stdin.write(req.prompt.encode())
+            await proc.stdin.drain()
+            proc.stdin.close()
+            # 待ち時間は全体で数える。asyncio.timeout を yield をまたいで使うと読み手側の処理まで打ち切るため、1 行ずつ残り時間で待つ
+            deadline = started + self.timeout_s
+            while line := await asyncio.wait_for(proc.stdout.readline(), max(0.0, deadline - time.perf_counter())):
+                kind, value = parse_stream_line(line.decode(errors="replace"))
+                if kind == "text" and isinstance(value, str):
+                    yield value
+                elif kind == "result" and isinstance(value, str):
+                    final = parse_envelope(value, (time.perf_counter() - started) * 1000, self.model)
+            err = await asyncio.wait_for(proc.stderr.read(), max(0.0, deadline - time.perf_counter()))
+            await proc.wait()
+        except TimeoutError as e:
+            raise GenerationError(f"claude -p が {self.timeout_s:.0f} 秒で応答しませんでした") from e
+        finally:
+            # 途中で止めた（画面を閉じた・時間切れ）ときは、子プロセスを残さない
+            if proc.returncode is None:
+                with contextlib.suppress(ProcessLookupError):
+                    proc.kill()
+                await proc.wait()
+        if proc.returncode != 0:
+            raise GenerationError(
+                f"claude -p が失敗しました（終了コード {proc.returncode}）: {err.decode(errors='replace').strip()[:500]}"
+            )
+        if final is None:
+            raise GenerationError("claude -p が結果を返しませんでした")
+        yield final
 
     async def generate(self, req: GenerateRequest) -> GeneratedText:
         if shutil.which(self.executable) is None:
@@ -165,10 +227,39 @@ def parse_envelope(raw: str, latency_ms: float, requested_model: str) -> Generat
     )
 
 
+def parse_stream_line(line: str) -> tuple[Literal["text", "result", "other"], str | None]:
+    """stream-json の 1 行を読む。書いた分の文字（text）か、最後の結果の行そのもの（result）か、それ以外か。"""
+    line = line.strip()
+    if not line:
+        return "other", None
+    try:
+        msg = json.loads(line)
+    except json.JSONDecodeError as e:
+        raise GenerationError(f"claude -p のストリームの行が JSON ではありません: {line[:200]!r}") from e
+    if not isinstance(msg, dict):
+        return "other", None
+    if msg.get("type") == "result":
+        return "result", line
+    event = msg.get("event")
+    if msg.get("type") == "stream_event" and isinstance(event, dict) and event.get("type") == "content_block_delta":
+        delta = event.get("delta")
+        if isinstance(delta, dict) and delta.get("type") == "text_delta" and isinstance(delta.get("text"), str):
+            return "text", str(delta["text"])
+    return "other", None
+
+
 def _count(usage: Mapping[str, object], key: str) -> int:
     # 使用量は目安の表示にだけ使うので、欠けていたり null だったりしても 0 とみなす
     v = usage.get(key)
     return int(v) if isinstance(v, int | float) and not isinstance(v, bool) else 0
+
+
+def make_stream_generator(model: ClaudeModel) -> StreamGenerator:
+    """ストリーミングの生成器を選ぶ（いまは claude-cli のみ）。"""
+    kind = os.environ.get("JEVLAB_GENERATOR", "claude-cli")
+    if kind == "claude-cli":
+        return ClaudeCliGenerator(model=model)
+    raise GenerationError(f"生成器 {kind!r} は未対応です（claude-cli のみ）")
 
 
 def make_generator(model: ClaudeModel) -> Generator:

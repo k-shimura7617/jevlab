@@ -5,7 +5,7 @@ import { pct, TARGET_SHORT, usd } from '../format'
 import { ops, type Item } from '../ops/api'
 import { canMail, replyHref } from '../ops/mail'
 import { Page, useShell, useTitle } from '../shell'
-import { tools, type Level, type ReplyCheck, type ReplyMeta, type ReplyResult, type RewriteResult } from './api'
+import { tools, type Level, type ReplyCheck, type ReplyMeta, type ReplyResult, suggestReplyStream, type SuggestDone } from './api'
 import { Hint } from '../components/hint'
 import { useElapsed } from './common'
 import { Sentences } from './Sentences'
@@ -106,7 +106,8 @@ export function ReplyPage() {
   const [judged, setJudged] = useState<{ inquiry: string; draft: string; result: ReplyResult } | null>(null)
   const [rwBusy, setRwBusy] = useState(false)
   const [rwError, setRwError] = useState<string | null>(null)
-  const [rewrite, setRewrite] = useState<RewriteResult | null>(null)
+  // AI返信案の書き終わり（モデル・所要時間）。書いている途中は null
+  const [suggested, setSuggested] = useState<SuggestDone | null>(null)
   const [fixed, setFixed] = useState('')
   const [after, setAfter] = useState<{ draft: string; result: ReplyResult } | null>(null)
   const [afterBusy, setAfterBusy] = useState(false)
@@ -154,7 +155,8 @@ export function ReplyPage() {
       .reply(target, { ...input, policy: policyText })
       .then((result) => {
         setJudged({ ...input, result })
-        setRewrite(null)
+        setSuggested(null)
+        setFixed('')
         setAfter(null)
         setRwError(null)
       })
@@ -162,30 +164,35 @@ export function ReplyPage() {
       .finally(() => setBusy(false))
   }
   // AI返信案: 下書きがあれば直した案（判定したばかりなら指摘を渡す）、なければ問い合わせから書いた案
+  // AI返信案は書いた分から順に出す（ストリーミング）
   const makeRewrite = () => {
     if (!inquiry.trim() || rwBusy) return
-    const gen = generation.current
-    const model = meta?.default_model ?? 'sonnet'
+    const gen = generation.current + 1
+    generation.current = gen
     const fresh = judged !== null && !stale ? judged : null
     setRwBusy(true)
     setRwError(null)
-    const request = draft.trim()
-      ? tools.replyRewrite({
-          inquiry: inquiry.trim(),
-          draft: draft.trim(),
-          policy: policyText,
-          findings: fresh ? findingsOf(fresh.result) : [],
-          model,
-        })
-      : tools.replyDraft({ inquiry: inquiry.trim(), policy: policyText, model })
-    request
-      .then((res) => {
-        if (gen !== generation.current) return
-        setRewrite(res)
-        setFixed(res.rewritten)
-        setAfter(null)
+    setSuggested(null)
+    setFixed('')
+    setAfter(null)
+    suggestReplyStream(
+      {
+        inquiry: inquiry.trim(),
+        draft: draft.trim(),
+        policy: policyText,
+        findings: fresh ? findingsOf(fresh.result) : [],
+        model: meta?.default_model ?? 'sonnet',
+      },
+      (text) => {
+        if (gen === generation.current) setFixed((prev) => prev + text)
+      },
+    )
+      .then((done) => {
+        if (gen === generation.current) setSuggested(done)
       })
-      .catch((e: unknown) => setRwError(errorMessage(e)))
+      .catch((e: unknown) => {
+        if (gen === generation.current) setRwError(errorMessage(e))
+      })
       .finally(() => setRwBusy(false))
   }
   const checkFixed = () => {
@@ -325,20 +332,20 @@ export function ReplyPage() {
           </button>
         </div>
         {rwError && <div className="error small">{rwError}</div>}
-        {rewrite && (
+        {(rwBusy || fixed !== '') && (
           <>
-            <textarea aria-label="AI返信案" rows={7} value={fixed} onChange={(e) => setFixed(e.target.value)} />
+            <textarea aria-label="AI返信案" rows={7} value={fixed} readOnly={rwBusy} onChange={(e) => setFixed(e.target.value)} />
             <div className="row">
-              <button type="button" disabled={!fixed.trim()} onClick={() => setDraft(fixed.trim())}>
+              <button type="button" disabled={rwBusy || !fixed.trim()} onClick={() => setDraft(fixed.trim())}>
                 採用
               </button>
               {r && (
-                <button type="button" className="secondary" disabled={afterBusy || !fixed.trim() || !target} onClick={checkFixed}>
+                <button type="button" className="secondary" disabled={rwBusy || afterBusy || !fixed.trim() || !target} onClick={checkFixed}>
                   {afterBusy ? '判定中…' : 'この案を判定する'}
                 </button>
               )}
               <span className="muted small">
-                {rewrite.model} ／ {(rewrite.latency_ms / 1000).toFixed(1)} 秒
+                {suggested ? `${suggested.model} ／ ${(suggested.latency_ms / 1000).toFixed(1)} 秒` : rwBusy ? '書いています…' : ''}
               </span>
             </div>
             {r && after && (

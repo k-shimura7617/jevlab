@@ -1,13 +1,15 @@
 from __future__ import annotations
 
-from collections.abc import Iterator
+import json
+from collections.abc import AsyncIterator, Iterator
 from pathlib import Path
+from typing import Any
 
 import pytest
 from fastapi.testclient import TestClient
 
 from jevlab.core.engine import AnswerView
-from jevlab.core.generator import GeneratedText, GenerateRequest
+from jevlab.core.generator import GeneratedText, GenerateRequest, GenerationError
 from jevlab.tools import api as tools_api
 from jevlab.tools import reply, tone
 from jevlab.web import app
@@ -114,3 +116,44 @@ def test_draft_sends_masked_inquiry_and_policy(client: TestClient, monkeypatch: 
     assert fake.requests[0].system == reply.DRAFT_SYSTEM
     monkeypatch.setattr(tools_api, "make_generator", lambda model: FakeGenerator({"changes": []}))
     assert client.post("/api/tools/reply/draft", json={"inquiry": INQUIRY}).status_code == 502
+
+
+class FakeStream:
+    def __init__(self, parts: list[str], fail: bool = False) -> None:
+        self.parts = parts
+        self.fail = fail
+        self.requests: list[GenerateRequest] = []
+
+    async def stream(self, req: GenerateRequest) -> AsyncIterator[str | GeneratedText]:
+        self.requests.append(req)
+        for p in self.parts:
+            yield p
+        if self.fail:
+            raise GenerationError("止まりました")
+        yield GeneratedText("".join(self.parts), None, "claude-test", 5.0, 0.001, 10, 5)
+
+
+def _lines(res: Any) -> list[dict[str, Any]]:
+    return [json.loads(x) for x in res.text.splitlines() if x]
+
+
+def test_suggest_stream_sends_text_as_it_is_written(client: TestClient, monkeypatch: pytest.MonkeyPatch) -> None:
+    fake = FakeStream(["お問い合わせ", "ありがとうございます。"])
+    monkeypatch.setattr(tools_api, "make_stream_generator", lambda model: fake)
+    res = client.post("/api/tools/reply/suggest/stream", json={"inquiry": INQUIRY})
+    assert res.status_code == 200 and res.headers["content-type"].startswith("application/x-ndjson")
+    lines = _lines(res)
+    assert [x["text"] for x in lines if x["type"] == "text"] == ["お問い合わせ", "ありがとうございます。"]
+    assert lines[-1]["type"] == "done" and lines[-1]["model"] == "claude-test"
+    # 下書きがなければ問い合わせから書く。個人情報の候補は伏せて送る
+    req = fake.requests[0]
+    assert req.system == reply.DRAFT_STREAM_SYSTEM and "090-1111-2222" not in req.prompt and req.schema is None
+    client.post("/api/tools/reply/suggest/stream", json={"inquiry": INQUIRY, "draft": DRAFT})
+    assert fake.requests[1].system == reply.REWRITE_STREAM_SYSTEM and "JSON" not in fake.requests[1].system
+
+
+def test_suggest_stream_reports_errors_in_the_stream(client: TestClient, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(tools_api, "make_stream_generator", lambda model: FakeStream(["途中"], fail=True))
+    lines = _lines(client.post("/api/tools/reply/suggest/stream", json={"inquiry": INQUIRY}))
+    assert lines[0] == {"type": "text", "text": "途中"} and lines[-1]["type"] == "error"
+    assert "止まりました" in lines[-1]["message"]

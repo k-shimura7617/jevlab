@@ -3,9 +3,12 @@
 from __future__ import annotations
 
 import asyncio
+import json
+from collections.abc import AsyncIterator
 from typing import Annotated, Final
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
+from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 from typesafe_sdk import TypeSafeError
 
@@ -13,7 +16,15 @@ from jevlab.core import target
 from jevlab.core.budget import BudgetExceededError
 from jevlab.core.client import judge
 from jevlab.core.engine import answer_views
-from jevlab.core.generator import CLAUDE_MODELS, ClaudeModel, GenerateRequest, GenerationError, make_generator
+from jevlab.core.generator import (
+    CLAUDE_MODELS,
+    ClaudeModel,
+    GeneratedText,
+    GenerateRequest,
+    GenerationError,
+    make_generator,
+    make_stream_generator,
+)
 from jevlab.ops.pipeline import BackendLike
 from jevlab.tools import contract, reply, tone
 
@@ -303,3 +314,35 @@ async def rewrite_reply(req: reply.RewriteRequest, request: Request) -> tone.Rew
 async def draft_reply(req: reply.DraftRequest, request: Request) -> tone.RewriteResult:
     """問い合わせ（個人情報の候補は伏せる）から、返信の案を Claude に書かせる。"""
     return await _written(request, req.model, reply.DRAFT_SYSTEM, reply.draft_prompt(req), "返信の案")
+
+
+def _line(obj: dict[str, object]) -> bytes:
+    return (json.dumps(obj, ensure_ascii=False) + "\n").encode()
+
+
+@router.post("/reply/suggest/stream")
+async def suggest_reply_stream(req: reply.SuggestRequest, request: Request) -> StreamingResponse:
+    """AI返信案をストリーミングで返す（1 行 1 つの JSON）。
+
+    - {"type": "text", "text": "…"}: 書いた分
+    - {"type": "done", "model": "…", "latency_ms": 1234.5}: 書き終わり
+    - {"type": "error", "message": "…"}: 失敗（途中まで書いた分は画面に残る）
+    問い合わせ・下書きの個人情報の候補は、プロンプトを作るときに伏せる。
+    """
+    system, prompt = reply.suggest_system_and_prompt(req)
+    slots: asyncio.Semaphore = request.app.state.rewrite_slots
+
+    async def body() -> AsyncIterator[bytes]:
+        try:
+            async with slots:
+                async for part in make_stream_generator(req.model).stream(
+                    GenerateRequest(system=system, prompt=prompt)
+                ):
+                    if isinstance(part, GeneratedText):
+                        yield _line({"type": "done", "model": part.model, "latency_ms": part.latency_ms})
+                    else:
+                        yield _line({"type": "text", "text": part})
+        except GenerationError as e:
+            yield _line({"type": "error", "message": f"AI返信案を作れませんでした: {e}"})
+
+    return StreamingResponse(body(), media_type="application/x-ndjson")

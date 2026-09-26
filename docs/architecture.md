@@ -242,7 +242,7 @@ flowchart TD
 | `POST /api/ops/simulator`、`/reset`、`GET /posts`、`/tuning` | シミュレータ・初期化・投稿・閾値の調整 |
 | `GET /api/ops/slack` | Slack のコネクタの状態（トークンの有無・送信と受信の状態・件数・エラー）。トークンの値は返さない |
 | `GET /api/tools/tone/meta`、`POST /api/tools/tone`、`/tone/rewrite` | 言い方チェック |
-| `GET /api/tools/reply/meta`、`POST /api/tools/reply`、`/reply/rewrite` | 返信前チェック（判定・直した案） |
+| `GET /api/tools/reply/meta`、`POST /api/tools/reply`、`/reply/rewrite`、`/reply/draft`、`/reply/suggest/stream` | 返信前チェック（判定・AI返信案。`suggest/stream` は書いた分から 1 行 1 つの JSON で返すストリーミング） |
 | `GET /api/tools/contract/meta`、`POST /api/tools/contract`、`/contract/explain` | 契約・規約チェック（判定・やさしい説明） |
 
 エラーの返し方:
