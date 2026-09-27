@@ -153,10 +153,10 @@ export function Escalations() {
   )
   // 届いた順（古い順）に並べる
   const items = [...filtered].sort((a, b) => a.seq - b.seq)
-  // 直前に並んでいた順（この画面で完了した件の、次の件を開くため）
+  // 直前に並んでいた件（この画面で完了した件と、リンクで開いた完了済みの件を見分けるため）
   const [shownOrder, setShownOrder] = useState<string[]>([])
   const missing = list.data !== null && wanted !== null && !all.some((i) => i.id === wanted)
-  // この画面で見ていた件が消えた（完了など）ときは、次の件に進む。
+  // この画面で見ていた件が消えた（完了など）ときは、いちばん上の件に進む。
   // リンク（Slack など）で開いた件が、最初からエスカレーション中でないときだけ、受付箱でその件を開く
   const handledHere = missing && shownOrder.includes(wanted ?? '')
   const gone = missing && !handledHere
@@ -164,9 +164,8 @@ export function Escalations() {
   useEffect(() => {
     if (gone && wanted) navigate(`/ops/inbox?id=${encodeURIComponent(wanted)}`, { replace: true })
   }, [gone, wanted, navigate])
-  const after = handledHere ? shownOrder.slice(shownOrder.indexOf(wanted ?? '') + 1) : []
-  const current =
-    items.find((i) => i.id === wanted) ?? after.map((id) => items.find((i) => i.id === id)).find((i) => i !== undefined) ?? items[0]
+  // 見ていた件を完了にしたら、一覧のいちばん上の件を開く
+  const current = items.find((i) => i.id === wanted) ?? items[0]
   // 見ていた件が消えている間は並びを保つ（最後の件を完了して一覧が空になっても、受付箱に移らないように）
   const order = items.map((i) => i.id)
   if (list.data !== null && !missing && order.join('\n') !== shownOrder.join('\n')) setShownOrder(order)
