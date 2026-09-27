@@ -47,7 +47,7 @@ export function WaitingRedirect() {
   return <Navigate replace to={to} />
 }
 
-export const SETTINGS_PATHS = ['/ops/settings', '/ops/staff', '/ops/settings/slack'] as const
+export const SETTINGS_PATHS = ['/ops/settings', '/ops/staff', '/ops/settings/slack', '/ops/import'] as const
 
 export function SettingsTabs() {
   return (
@@ -57,6 +57,7 @@ export function SettingsTabs() {
         { to: '/ops/settings', label: '分類' },
         { to: '/ops/staff', label: '担当者' },
         { to: '/ops/settings/slack', label: 'Slack' },
+        { to: '/ops/import', label: '取り込み' },
       ]}
     />
   )
