@@ -155,11 +155,12 @@ def no_reply_reason(item: Item, settings: Settings) -> str | None:
     返信不要の分類（お礼など）はいつも要らない。返信の要否を判定する分類（その他など）は、Jev の判定で決める。
     """
     label = category_label(item.category, settings)
-    if _needs_attention(item, settings):
-        # 強い不満や緊急の兆しがある件は、分類がお礼でも自動で完了にしない（誤分類を誰も見ないまま閉じないように）
-        return None
     if settings.auto_closes(item.category):
+        # お礼などは分類の確信度で決める（閾値以上で振り分けた件はそのまま完了）。不満・緊急の兆しでは止めない
         return f"返信のいらない分類（{label}）"
+    if _needs_attention(item, settings):
+        # 返信の要否を判定する分類では、強い不満や緊急の兆しがある件を自動で完了にしない
+        return None
     if settings.judges_reply(item.category):
         view = item.answers.get(oq.REPLY_ID)
         p = view.value if view is not None else None
@@ -185,6 +186,12 @@ def decide_route(item: Item, settings: Settings) -> tuple[Route, str]:
     """分類の確信度と業務ルールから、自動振り分け・確認待ち・エスカレーションを決める。"""
     c = settings.classify
     answers = item.answers
+    conf = item.confidence or 0.0
+    auto = c.label_thresholds.get(item.category or "", c.auto_threshold)
+    # 返信のいらない分類（お礼など）は、分類の確信度が閾値以上なら、ほかの判定より先に自動で振り分ける（そのまま完了になる）。
+    # 目的がお礼と言い切れるなら、不満・緊急の兆しや担当の推定で人を呼ばない
+    if settings.auto_closes(item.category) and conf >= auto:
+        return "routed", f"返信のいらない分類で確信度 {conf:.2f} ≥ 自動の閾値 {auto:.2f}"
     frustration = answers.get("frustration")
     urgent = answers.get("urgent")
     if c.escalate_strong_frustration and frustration is not None:
@@ -195,8 +202,6 @@ def decide_route(item: Item, settings: Settings) -> tuple[Route, str]:
             return "escalated", "強い不満（不満度 2）"
     if c.escalate_urgent and urgent is not None and urgent.prediction is True:
         return "escalated", f"緊急（{urgent.value or 0:.2f}）"
-    conf = item.confidence or 0.0
-    auto = c.label_thresholds.get(item.category or "", c.auto_threshold)
     if conf >= auto:
         split = split_reason(answers, c.split_margin)
         if split:
