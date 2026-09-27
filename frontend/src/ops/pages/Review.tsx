@@ -6,10 +6,12 @@ import { QueueTabs } from '../tabs'
 import { ops } from '../api'
 import { Empty, ItemRow } from '../components'
 import { ItemPanel } from '../ItemPanel'
+import { useFillHeight } from '../fill'
 import { useOps, usePolling } from '../state'
 
 export function Review() {
   useTitle('分類の確認')
+  const fill = useFillHeight<HTMLDivElement>()
   const { meta, refresh } = useOps()
   const [params, setParams] = useSearchParams()
   const list = usePolling(() => ops.items(['review']))
@@ -84,7 +86,7 @@ export function Review() {
           {meta && `（${Object.values(meta.categories).map((l, i) => `${i + 1}: ${l}`).join(' ／ ')}）`}
         </span>
       </div>
-      <div className="queue-layout">
+      <div className="queue-layout fill" ref={fill}>
         <section className="panel list-pane">
           <div className="cat-filter" role="group" aria-label="分類で絞り込む">
             <button type="button" className="filter-chip" aria-pressed={category === 'all'} onClick={() => setCategory('all')}>
@@ -109,13 +111,13 @@ export function Review() {
               items.length === 0 &&
               (pool.length > 0 ? (
                 <Empty>
-                  この分類の件はありません{' '}
+                  この分類の問い合わせはありません{' '}
                   <button type="button" className="link-btn" onClick={() => setCategory('all')}>
                     絞り込みを解除
                   </button>
                 </Empty>
               ) : (
-                <Empty>確認待ちの件はありません</Empty>
+                <Empty>分類の確認はすべて済みました</Empty>
               ))}
           </div>
         </section>
@@ -133,7 +135,7 @@ export function Review() {
           ) : current ? (
             <ItemPanel id={current.id} onChanged={list.reload} />
           ) : (
-            <Empty>確認待ちの件はありません</Empty>
+            <Empty>分類の確認はすべて済みました</Empty>
           )}
         </section>
       </div>

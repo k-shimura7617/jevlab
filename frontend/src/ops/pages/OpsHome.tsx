@@ -1,5 +1,5 @@
 import { useEffect, useState, type CSSProperties, type ReactNode } from 'react'
-import { Link, useLocation, useNavigate } from 'react-router'
+import { Link, useNavigate } from 'react-router'
 import { errorMessage } from '../../api'
 import { pct } from '../../format'
 import { Page, useTitle } from '../../shell'
@@ -224,24 +224,79 @@ export function FlowProgress({ received: r0, waiting: w0, imported }: { received
   )
 }
 
-/** 管理（開発側）: 処理の状況。受信シミュレータ・お客様としてメールを送る・処理フロー。 */
+/** 処理フロー（受信 → ガードレール → 仕分け → 振り分け → 完了）。運用の入口に出す。 */
+export function FlowSection({ imported = null }: { imported?: number | null }) {
+  const { overview, settings } = useOps()
+  const f = overview?.flow
+  if (!f) return null
+  return (
+    <section className="panel" data-testid="flow" id="flow">
+      <h2>処理フロー</h2>
+      <FlowProgress received={f.received} waiting={f.waiting} imported={imported} />
+      <div className="flow">
+        <Node title="受信" count={f.received} to="/ops/inbox" tone="accent">
+          処理待ち {f.waiting}
+        </Node>
+        <span className="flow-arrow" aria-hidden>
+          →
+        </span>
+        <Node
+          title="ガードレール"
+          who={settings ? (!settings.guard.enabled ? '無効' : settings.guard.use_model ? TARGET_NAMES[settings.guard.target] : '規則のみ') : undefined}
+          count={f.pii_found}
+          to="/ops/pii"
+          tone="warn"
+        >
+          個人情報あり ／ マスク {f.masked}・ブロック {f.blocked}
+          {f.pii_review > 0 && <span className="node-alert">人の確認待ち {f.pii_review}</span>}
+          <KevQueueNote queue={overview?.kev_queue} available={overview?.kev?.available ?? true} />
+        </Node>
+        <span className="flow-arrow" aria-hidden>
+          →
+        </span>
+        <Node
+          title="仕分け"
+          who={settings ? TARGET_NAMES[settings.classify.target] : undefined}
+          count={f.classified}
+          tone="accent"
+        >
+          {f.kev_only > 0 ? `うち Kev だけで確定 ${f.kev_only}` : '分類・抽出'}
+        </Node>
+        <span className="flow-arrow" aria-hidden>
+          →
+        </span>
+        <div className="flow-branches">
+          <Node title="自動で振り分け" count={f.auto} to="/ops/inbox" tone="ok">
+            チャンネルへ投稿
+          </Node>
+          <Node title="分類の確認" count={f.review} to="/ops/review" tone="warn">
+            人が承認・修正
+          </Node>
+          <Node title="エスカレーション" count={f.escalated} to="/ops/escalations" tone="ng">
+            担当者が対応
+          </Node>
+        </div>
+        <span className="flow-arrow" aria-hidden>
+          →
+        </span>
+        <Node title="対応完了" count={f.closed} tone="muted">
+          {f.error > 0 ? <span className="node-alert">エラー {f.error}</span> : '担当者が完了した件'}
+        </Node>
+      </div>
+    </section>
+  )
+}
+
+/** 管理（開発側）: 処理の状況。受信シミュレータ・お客様としてメールを送る・指標・最新の動き。 */
 export function AdminHome() {
   useTitle('処理の状況')
-  const { overview, overviewError, settings, refresh } = useOps()
+  const { overview, overviewError, refresh } = useOps()
   const navigate = useNavigate()
   const [composing, setComposing] = useState(false)
   const f = overview?.flow
   // 件数が少ないうちは割合がぶれるので出さない
   const acc = (a: { n: number; matched: number } | undefined) => (a && a.n >= 5 ? pct(a.matched / a.n) : '-')
   const waitingHuman = f ? f.pii_review + f.review + f.escalated : 0
-  // ファイル取り込みの後などに #flow で開いたら、処理フローまで送る
-  const { hash, state } = useLocation()
-  // ファイル取り込みから移ってきたときの、取り込んだ件数
-  const imported = typeof state === 'object' && state !== null && 'imported' in state && typeof state.imported === 'number' ? state.imported : null
-  const flowShown = f !== undefined
-  useEffect(() => {
-    if (hash === '#flow' && flowShown) document.getElementById('flow')?.scrollIntoView({ block: 'start' })
-  }, [hash, flowShown])
   return (
     <Page wide crumbs={[{ label: '管理', to: '/admin' }, { label: '処理の状況' }]}>
       <div className="panel-head">
@@ -254,62 +309,6 @@ export function AdminHome() {
       <KevDownBanner />
       <SimulatorPanel />
 
-      {f && (
-        <section className="panel" data-testid="flow" id="flow">
-          <h2>処理フロー</h2>
-          <FlowProgress received={f.received} waiting={f.waiting} imported={imported} />
-          <div className="flow">
-            <Node title="受信" count={f.received} to="/ops/inbox" tone="accent">
-              処理待ち {f.waiting}
-            </Node>
-            <span className="flow-arrow" aria-hidden>
-              →
-            </span>
-            <Node
-              title="ガードレール"
-              who={settings ? (!settings.guard.enabled ? '無効' : settings.guard.use_model ? TARGET_NAMES[settings.guard.target] : '規則のみ') : undefined}
-              count={f.pii_found}
-              to="/ops/pii"
-              tone="warn"
-            >
-              個人情報あり ／ マスク {f.masked}・ブロック {f.blocked}
-              {f.pii_review > 0 && <span className="node-alert">人の確認待ち {f.pii_review}</span>}
-              <KevQueueNote queue={overview?.kev_queue} available={overview?.kev?.available ?? true} />
-            </Node>
-            <span className="flow-arrow" aria-hidden>
-              →
-            </span>
-            <Node
-              title="仕分け"
-              who={settings ? TARGET_NAMES[settings.classify.target] : undefined}
-              count={f.classified}
-              tone="accent"
-            >
-              {f.kev_only > 0 ? `うち Kev だけで確定 ${f.kev_only}` : '分類・抽出・優先度'}
-            </Node>
-            <span className="flow-arrow" aria-hidden>
-              →
-            </span>
-            <div className="flow-branches">
-              <Node title="自動で振り分け" count={f.auto} to="/admin/channels" tone="ok">
-                チャンネルへ投稿
-              </Node>
-              <Node title="分類の確認" count={f.review} to="/ops/review" tone="warn">
-                人が承認・修正
-              </Node>
-              <Node title="エスカレーション" count={f.escalated} to="/ops/escalations" tone="ng">
-                担当者が対応
-              </Node>
-            </div>
-            <span className="flow-arrow" aria-hidden>
-              →
-            </span>
-            <Node title="対応完了" count={f.closed} tone="muted">
-              {f.error > 0 ? <span className="node-alert">エラー {f.error}</span> : '担当者が完了した件'}
-            </Node>
-          </div>
-        </section>
-      )}
 
       {overview && f && (
         <section className="kpis" data-testid="kpis">

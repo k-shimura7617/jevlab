@@ -9,6 +9,7 @@ import { pct } from '../../format'
 import { staffName } from '../format'
 import { matchesWho, useAssigneeFilter } from '../assigneeFilter'
 import { ItemPanel } from '../ItemPanel'
+import { useFillHeight } from '../fill'
 import { useOps, usePolling } from '../state'
 
 function Handling({ item, onDone }: { item: Item; onDone: () => void }) {
@@ -137,6 +138,7 @@ function Handling({ item, onDone }: { item: Item; onDone: () => void }) {
 
 export function Escalations() {
   useTitle('エスカレーション')
+  const fill = useFillHeight<HTMLDivElement>()
   const { meta, refresh, settings } = useOps()
   const [category, setCategory] = useState<string>('all')
   const list = usePolling(() => ops.items(['escalated']))
@@ -246,7 +248,7 @@ export function Escalations() {
       <div className="panel-head">
         <h1>エスカレーション</h1>
       </div>
-      <div className="queue-layout">
+      <div className="queue-layout fill" ref={fill}>
         <section className="panel list-pane">
           <div className="row">
             <label className="muted small" htmlFor="filter-assignee">
@@ -334,13 +336,13 @@ export function Escalations() {
             {list.data && items.length === 0 &&
               (all.length > 0 ? (
                 <Empty>
-                  絞り込みに当てはまる件はありません{' '}
+                  絞り込みに合う問い合わせはありません{' '}
                   <button type="button" className="link-btn" onClick={() => { setMine('all'); setCategory('all') }}>
                     絞り込みを解除
                   </button>
                 </Empty>
               ) : (
-                <Empty>エスカレーション中の件はありません</Empty>
+                <Empty>エスカレーションはすべて対応済みです</Empty>
               ))}
           </div>
         </section>
@@ -360,7 +362,7 @@ export function Escalations() {
               <ItemPanel id={current.id} onChanged={list.reload} here="escalations" />
             </>
           ) : (
-            <Empty>エスカレーション中の件はありません</Empty>
+            <Empty>エスカレーションはすべて対応済みです</Empty>
           )}
         </section>
       </div>
