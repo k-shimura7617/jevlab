@@ -77,6 +77,8 @@ ROUTE_ORDER: list[tuple[str, Case, str]] = [
     ("R5", Case(insufficient=0.7), "review"),
     ("R5-off", Case(insufficient=0.7, settings={"insufficient_gate": False}), "routed"),
     ("R6", Case(), "routed"),
+    # 分類ごとの閾値は共通の閾値より先に効く
+    ("R6-label", Case(confidence=0.7, settings={"label_thresholds": {"inquiry": 0.6}}), "routed"),
     ("R7", Case(confidence=0.6), "review"),
     ("R8", Case(confidence=0.3), "escalated"),
 ]

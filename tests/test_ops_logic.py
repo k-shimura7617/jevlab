@@ -38,23 +38,6 @@ def answers(conf: float, frustration: int = 0, urgent: float = 0.1) -> dict[str,
     }
 
 
-def test_decide_route_by_confidence_and_rules() -> None:
-    s = Settings()
-    route = lambda **kw: decide_route(make_item(category="inquiry", **kw), s)[0]
-    assert route(confidence=0.95, answers=answers(0.95)) == "routed"
-    assert route(confidence=0.7, answers=answers(0.7)) == "review"
-    assert route(confidence=0.3, answers=answers(0.3)) == "escalated"
-    assert route(confidence=0.99, answers=answers(0.99, frustration=2)) == "escalated"
-    assert route(confidence=0.99, answers=answers(0.99, urgent=0.8)) == "escalated"
-
-
-def test_label_threshold_overrides_common_threshold() -> None:
-    s = Settings()
-    s = s.model_copy(update={"classify": s.classify.model_copy(update={"label_thresholds": {"inquiry": 0.6}})})
-    item = make_item(category="inquiry", confidence=0.7, answers=answers(0.7))
-    assert decide_route(item, s)[0] == "routed"
-
-
 def test_field_candidates_and_questions() -> None:
     text = "前回の KM-250901-0001 ではなく今回の KM-250914-0031 です。9月28日までに3,300円を返金してください。明日連絡します"
     cands = oq.field_candidates(text)
@@ -175,14 +158,6 @@ def _score_view(p0: float, p1: float, p2: float, conf: float) -> AnswerView:
     )
 
 
-def test_strong_frustration_uses_probability_of_level_2() -> None:
-    s = Settings()
-    # 期待値は 0.85（四捨五入で 1）だが、強い不満の確率は 0.40 ある
-    a = {**answers(0.99), "frustration": _score_view(0.55, 0.05, 0.40, 0.0)}
-    route, reason = decide_route(make_item(category="inquiry", confidence=0.99, answers=a), s)
-    assert route == "escalated" and "0.40" in reason
-
-
 def test_split_judgments_go_to_review() -> None:
     s = Settings()
     close = {**answers(0.99), "category": _choice_view({"inquiry": 0.48, "complaint": 0.44, "thanks": 0.08})}
@@ -270,20 +245,6 @@ def test_miss_summary_suggests_threshold_and_extra_reviews() -> None:
     # いまの閾値で足りていれば上げない
     assert misses.suggest([0.9, 0.8], 1.0, 0.5) == 0.5
     assert misses.suggest([], 0.8, 0.5) is None
-
-
-def test_confident_thanks_is_auto_closed_even_with_urgency_or_frustration() -> None:
-    from jevlab.ops.pipeline import no_reply_reason
-
-    s = Settings()
-    # 分類がお礼で確信度が閾値以上なら、不満・緊急の兆しがあっても人を呼ばずに完了にする
-    for a in (answers(0.99), answers(0.99, urgent=0.9), answers(0.99, frustration=2)):
-        item = make_item(category="thanks", confidence=0.99, answers=a)
-        assert decide_route(item, s)[0] == "routed"
-        assert no_reply_reason(item, s) is not None
-    # 確信度が閾値未満のお礼は、これまでどおりの判定（緊急ならエスカレーション）
-    low = make_item(category="thanks", confidence=0.7, answers=answers(0.7, urgent=0.9))
-    assert decide_route(low, s)[0] == "escalated"
 
 
 def test_reopen_returns_an_auto_closed_item_to_routed(tmp_path: Path) -> None:

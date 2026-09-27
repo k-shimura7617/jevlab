@@ -1,4 +1,4 @@
-// 画面の上に並べるタブ（対応待ち・設定・管理）。1 つのメニューの下の画面を切り替える
+// 画面の上に並べるタブ（対応待ち・設定）。1 つのメニューの下の画面を切り替える
 import { Link, Navigate, useLocation } from 'react-router'
 import { useOps } from './state'
 
@@ -57,23 +57,6 @@ export function SettingsTabs() {
         { to: '/ops/settings', label: '分類' },
         { to: '/ops/staff', label: '担当者' },
         { to: '/ops/settings/slack', label: 'Slack' },
-      ]}
-    />
-  )
-}
-
-/** 管理（開発側）。利用者のメニューには出さない。 */
-export function AdminTabs() {
-  return (
-    <PageTabs
-      label="管理"
-      tabs={[
-        { to: '/admin', label: '処理の状況' },
-        { to: '/admin/settings', label: '詳細設定' },
-        { to: '/admin/pii', label: '個人情報の判定' },
-        { to: '/admin/connectors', label: 'コネクタ' },
-        { to: '/admin/channels', label: '疑似 Slack' },
-        { to: '/admin/audit', label: '監査ログ' },
       ]}
     />
   )

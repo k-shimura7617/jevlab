@@ -11,6 +11,7 @@ import { Escalations } from './ops/pages/Escalations'
 import { Inbox } from './ops/pages/Inbox'
 import { ItemPage } from './ops/pages/ItemPage'
 import { OpsHome } from './ops/pages/Home'
+import { ImportPage } from './ops/pages/ImportPage'
 import { AdminHome } from './ops/pages/OpsHome'
 import { AuditLog } from './ops/pages/AuditLog'
 import { AdminSettings, OpsSettings } from './ops/pages/OpsSettings'
@@ -93,6 +94,7 @@ const router = createBrowserRouter([
           { path: '/ops/review', element: <Review /> },
           { path: '/ops/escalations', element: <Escalations /> },
           { path: '/ops/waiting', element: <WaitingRedirect /> },
+          { path: '/ops/import', element: <ImportPage /> },
           { path: '/ops/settings', element: <OpsSettings /> },
           { path: '/ops/settings/slack', element: <SlackSettings /> },
           { path: '/ops/tuning', element: <Tuning /> },
