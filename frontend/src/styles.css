@@ -13,6 +13,8 @@
     --warn: #e0a84a; --warn-soft: #3a2d15; --bar: #2c3e63; --side: #0e1014; --side-text: #aab1bd; --side-active: #3a64b8;
     --c0: #6b9bf0; --c1: #ef6f5e; --c2: #4cc27f; --c3: #e0a84a; --c4: #b48cf0; --c5: #4cc3d6; --c-other: #8b919b;
     --console-bg: #0a0c10;
+    /* 日付・時刻の入力欄などブラウザ標準の部品もダークにする */
+    color-scheme: dark;
   }
 }
 * { box-sizing: border-box; }

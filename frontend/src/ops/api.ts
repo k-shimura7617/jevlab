@@ -247,6 +247,8 @@ export interface Overview {
   kev: { endpoint: string; available: boolean; reason: string | null; uses: string[] } | null
   // Kev の処理待ちと見込み（Kev を使う設定のときだけ）
   kev_queue: KevQueue | null
+  // 件で使われている分類（削除できない）
+  used_categories: string[]
 }
 
 export interface SlackSettings {

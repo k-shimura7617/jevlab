@@ -1,9 +1,9 @@
 import { useEffect, useLayoutEffect, useRef, useState } from 'react'
-import { Link, useSearchParams } from 'react-router'
+import { Link, useBlocker, useSearchParams } from 'react-router'
 import { errorMessage } from '../api'
 import { pct, TARGET_SHORT, usd } from '../format'
 import { ops, type Item } from '../ops/api'
-import { canMail, replyHref } from '../ops/mail'
+import { bodyFitsMailto, canMail, replyHref } from '../ops/mail'
 import { Page, useShell, useTitle } from '../shell'
 import { tools, type Level, type ReplyCheck, type ReplyMeta, type ReplyResult, suggestReplyStream, type SuggestDone } from './api'
 import { Hint } from '../components/hint'
@@ -117,6 +117,9 @@ export function ReplyPage() {
   const elapsed = useElapsed(rwBusy)
   // 判定をやり直したら、それより前に頼んだ AI返信案・再判定の応答は捨てる
   const generation = useRef(0)
+  // 書いている途中の AI返信案を止めるため（画面を離れる・判定し直すとき）
+  const abortRef = useRef<AbortController | null>(null)
+  const [copyMsg, setCopyMsg] = useState<string | null>(null)
   const policyText = policy ?? meta?.default_policy ?? ''
 
   useEffect(() => {
@@ -127,7 +130,11 @@ export function ReplyPage() {
   }, [])
   // エスカレーションから開いたときは、その件の問い合わせ（個人情報を伏せて Jev に送った本文）を入れる
   useEffect(() => {
-    if (!itemId) return
+    // 件なしで開き直したら、前の件（返信の宛先）を残さない
+    if (!itemId) {
+      setItem(null)
+      return
+    }
     ops
       .item(itemId)
       .then(({ item }) => {
@@ -158,8 +165,25 @@ export function ReplyPage() {
     return () => window.removeEventListener('keydown', onKey)
   }, [policyOpen])
   const stale = judged !== null && (inquiry.trim() !== judged.inquiry || draft.trim() !== judged.draft)
+  // 書いている途中なら、中止してよいかを聞いてから止める（止めなければ false）
+  const stopGenerating = (): boolean => {
+    if (!rwBusy) return true
+    if (!window.confirm('生成を中止しますか？')) return false
+    abortRef.current?.abort()
+    return true
+  }
+  // 画面を離れるときも同じように聞く。閉じた・消えたときは黙って止める（生成の課金が続かないように）
+  const blocker = useBlocker(rwBusy)
+  useEffect(() => {
+    if (blocker.state !== 'blocked') return
+    if (window.confirm('生成を中止しますか？')) {
+      abortRef.current?.abort()
+      blocker.proceed()
+    } else blocker.reset()
+  }, [blocker])
+  useEffect(() => () => abortRef.current?.abort(), [])
   const check = () => {
-    if (!target || !inquiry.trim() || !draft.trim() || busy) return
+    if (!target || !inquiry.trim() || !draft.trim() || busy || !stopGenerating()) return
     setBusy(true)
     setError(null)
     generation.current += 1
@@ -188,6 +212,9 @@ export function ReplyPage() {
     setSuggested(null)
     setFixed('')
     setAfter(null)
+    abortRef.current?.abort()
+    const controller = new AbortController()
+    abortRef.current = controller
     suggestReplyStream(
       {
         inquiry: inquiry.trim(),
@@ -199,14 +226,20 @@ export function ReplyPage() {
       (text) => {
         if (gen === generation.current) setFixed((prev) => prev + text)
       },
+      controller.signal,
     )
       .then((done) => {
         if (gen === generation.current) setSuggested(done)
       })
       .catch((e: unknown) => {
-        if (gen === generation.current) setRwError(errorMessage(e))
+        if (controller.signal.aborted) {
+          if (gen === generation.current) setRwError('生成を中止しました')
+        } else if (gen === generation.current) setRwError(errorMessage(e))
       })
-      .finally(() => setRwBusy(false))
+      .finally(() => {
+        if (abortRef.current === controller) abortRef.current = null
+        setRwBusy(false)
+      })
   }
   const checkFixed = () => {
     if (!target || !judged || !fixed.trim() || afterBusy) return
@@ -328,6 +361,26 @@ export function ReplyPage() {
                 >
                   この内容で返信
                 </a>
+                {!stale && judged && !bodyFitsMailto(judged.draft) && (
+                  <span className="small">
+                    本文が長いのでコピーして貼り付け{' '}
+                    <button
+                      type="button"
+                      className="secondary"
+                      onClick={() =>
+                        navigator.clipboard
+                          ? navigator.clipboard
+                              .writeText(judged.draft)
+                              .then(() => setCopyMsg('コピーしました'))
+                              .catch((e: unknown) => setCopyMsg(`コピーできませんでした: ${errorMessage(e)}`))
+                          : setCopyMsg('この接続ではコピーできません。本文を選んでコピーしてください')
+                      }
+                    >
+                      本文をコピー
+                    </button>
+                    {copyMsg && <span role="status"> {copyMsg}</span>}
+                  </span>
+                )}
               </div>
             )}
           </section>
@@ -361,7 +414,7 @@ export function ReplyPage() {
                 </button>
               )}
               <span className="muted small">
-                {suggested ? `${suggested.model} ／ ${(suggested.latency_ms / 1000).toFixed(1)} 秒` : rwBusy ? '作成中…' : ''}
+                {suggested ? `${suggested.model} ／ ${(suggested.latency_ms / 1000).toFixed(1)} 秒` : rwBusy ? '作成中…' : (meta?.default_model ?? '')}
               </span>
             </div>
             {r && after && (
