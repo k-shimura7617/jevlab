@@ -1,6 +1,5 @@
 import { useState } from 'react'
 import { Page, useTitle } from '../../shell'
-import { AdminTabs } from '../tabs'
 import { ops, type EventKind } from '../api'
 import { usePolling } from '../state'
 
@@ -44,7 +43,6 @@ export function AuditLog() {
 
   return (
     <Page crumbs={[{ label: '管理', to: '/admin' }, { label: '監査ログ' }]}>
-      <AdminTabs />
       <div className="panel-head">
         <h1>監査ログ</h1>
         <span className="muted small">本文・差出人・メモの本文は出力しません</span>

@@ -324,6 +324,9 @@ function Sidebar() {
         <NavLink to="/ops/inbox" className={navCls}>
           受付箱
         </NavLink>
+        <NavLink to="/ops/import" className={navCls}>
+          取り込み
+        </NavLink>
         <Link to="/ops/waiting" className={inQueue ? 'active' : undefined}>
           対応待ち{badge(waiting)}
         </Link>
@@ -333,6 +336,26 @@ function Sidebar() {
         <Link to="/ops/settings" className={inSettings ? 'active' : undefined}>
           設定
         </Link>
+      </NavGroup>
+      <NavGroup id="admin" title="管理" to="/admin" inside={pathname.startsWith('/admin')}>
+        <NavLink to="/admin" end className={navCls}>
+          処理の状況
+        </NavLink>
+        <NavLink to="/admin/settings" className={navCls}>
+          詳細設定
+        </NavLink>
+        <NavLink to="/admin/pii" className={navCls}>
+          個人情報の判定
+        </NavLink>
+        <NavLink to="/admin/connectors" className={navCls}>
+          コネクタ
+        </NavLink>
+        <NavLink to="/admin/channels" className={navCls}>
+          疑似 Slack
+        </NavLink>
+        <NavLink to="/admin/audit" className={navCls}>
+          監査ログ
+        </NavLink>
       </NavGroup>
       <NavGroup
         id="eval"

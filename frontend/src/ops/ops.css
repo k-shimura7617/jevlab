@@ -81,9 +81,10 @@ a.flow-node:hover { border-color: var(--tone, var(--accent)); }
 .inbox-layout, .queue-layout { display: grid; grid-template-columns: minmax(320px, 520px) minmax(0, 1fr); gap: 16px; align-items: start; }
 @media (max-width: 1000px) { .inbox-layout, .queue-layout { grid-template-columns: minmax(0, 1fr); } }
 .inbox-layout > .panel, .queue-layout > .panel { margin: 8px 0; }
-.list-pane { position: sticky; top: 60px; max-height: calc(100vh - 80px); display: flex; flex-direction: column; }
-@media (max-width: 1000px) { .list-pane { position: static; max-height: none; } }
-.item-list { overflow-y: auto; margin: 0 -8px; }
+/* 左の一覧は件の数にかかわらず同じ大きさにする（タブを切り替えても枠が変わらないように） */
+.list-pane { position: sticky; top: 60px; height: calc(100vh - 80px); display: flex; flex-direction: column; }
+@media (max-width: 1000px) { .list-pane { position: static; height: auto; } }
+.item-list { flex: 1; min-height: 0; overflow-y: auto; margin: 0 -8px; }
 .list-pane h2 .n, .tab .n { font-size: 11px; font-weight: 700; color: var(--muted); margin-left: 4px; }
 .tabs { display: flex; flex-wrap: wrap; gap: 2px; border-bottom: 1px solid var(--line); margin-bottom: 6px; }
 .tab { background: none; color: var(--muted); border-radius: 0; padding: 6px 10px; border-bottom: 2px solid transparent; font-size: 13px; }

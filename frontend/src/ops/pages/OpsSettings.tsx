@@ -5,7 +5,7 @@ import { Page, targetStatus, useShell, useTitle } from '../../shell'
 import type { CategoryDef, PiiAction, PiiType, Settings } from '../api'
 import { useAutoSave } from '../autosave'
 import { SaveState } from '../components'
-import { AdminTabs, SettingsTabs } from '../tabs'
+import { SettingsTabs } from '../tabs'
 import { ACTION_LABELS, ACTION_NOTES } from '../format'
 import { useOps } from '../state'
 
@@ -307,7 +307,6 @@ export function AdminSettings() {
   }
   return (
     <Page crumbs={[{ label: '管理', to: '/admin' }, { label: '詳細設定' }]}>
-      <AdminTabs />
       <div {...auto.handlers}>
       <div className="panel-head">
         <h1>詳細設定</h1>

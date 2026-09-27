@@ -3,7 +3,7 @@ import { Page, useTitle } from '../../shell'
 import { useOps } from '../state'
 import { KevDownBanner } from './OpsHome'
 
-/** 運用の入口。残っている件の数と、片づける画面へのリンクだけを出す。 */
+/** 運用の入口。人の対応が必要な件の数と、片づける画面へのリンクだけを出す。 */
 export function OpsHome() {
   useTitle('運用')
   const { overview, overviewError } = useOps()
@@ -24,7 +24,7 @@ export function OpsHome() {
       {overviewError && <div className="error">状態を取得できません: {overviewError}</div>}
       {c && (
         <section className="panel home" data-testid="home">
-          <h1>{total ? `残り ${total} 件` : '残りはありません'}</h1>
+          <h1>{total ? `対応が必要な件 ${total} 件` : '対応が必要な件はありません'}</h1>
           <ul className="home-rows">
             {rows.map((r) => (
               <li key={r.label}>

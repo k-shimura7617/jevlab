@@ -8,7 +8,6 @@ import { costText, KevQueueNote, Kpi } from '../components'
 import { ACTOR_LABELS, clockTime } from '../format'
 import { useOps } from '../state'
 import { Compose } from '../Compose'
-import { AdminTabs } from '../tabs'
 
 const TARGET_NAMES = { custom: 'Kev', jev: 'Jev', mock: 'MOCK' } as const
 
@@ -175,7 +174,7 @@ function useCountUp(target: number): number {
   return shown
 }
 
-function FlowProgress({ received: r0, waiting: w0, imported }: { received: number; waiting: number; imported: number | null }) {
+export function FlowProgress({ received: r0, waiting: w0, imported }: { received: number; waiting: number; imported: number | null }) {
   // 処理中は、軽い進み具合の API を短い間隔で読む（ダッシュボード全体の更新は 1.5 秒ごとで、まとめて進んで見えるため）
   const [live, setLive] = useState<{ received: number; waiting: number } | null>(null)
   const busy = w0 > 0 || (live?.waiting ?? 0) > 0
@@ -245,7 +244,6 @@ export function AdminHome() {
   }, [hash, flowShown])
   return (
     <Page wide crumbs={[{ label: '管理', to: '/admin' }, { label: '処理の状況' }]}>
-      <AdminTabs />
       <div className="panel-head">
         <h1>処理の状況</h1>
         <button type="button" onClick={() => setComposing(true)}>

@@ -1,5 +1,4 @@
 import { useEffect, useRef, useState } from 'react'
-import { useNavigate } from 'react-router'
 import { errorMessage } from '../../api'
 import { Page, useTitle } from '../../shell'
 import { ops, type Channel, type ImportRow, type ParsedFile, type Settings, type SlackSettings, type SlackState, type SlackStatus } from '../api'
@@ -7,7 +6,7 @@ import { guessCategory, guessMapping, MAPPED_FIELDS, SAMPLE_CSV, toIsoDate, type
 import { useAutoSave } from '../autosave'
 import { SaveState } from '../components'
 import { useOps, usePolling } from '../state'
-import { AdminTabs, SettingsTabs } from '../tabs'
+import { SettingsTabs } from '../tabs'
 
 const CONNECTORS: { id: Channel; name: string; icon: string; real: string; desc: string }[] = [
   {
@@ -283,9 +282,8 @@ const readBase64 = (f: File): Promise<string> =>
   })
 
 /** 既存の問い合わせのファイル（CSV・Excel・メール・Slack のエクスポート）を取り込む。 */
-function FileImport() {
+export function FileImport({ onImported }: { onImported: (n: number | null) => void }) {
   const { settings, meta, refresh } = useOps()
-  const navigate = useNavigate()
   const [fileName, setFileName] = useState('')
   const [parsed, setParsed] = useState<ParsedFile | null>(null)
   const [hasHeader, setHasHeader] = useState(true)
@@ -361,8 +359,8 @@ function FileImport() {
       }
       setParsed(null)
       refresh()
-      // 取り込んだ件が処理される様子を、ダッシュボードの処理フローで見る
-      navigate('/ops#flow', { state: backfill ? null : { imported: ids.length } })
+      // 取り込んだ件が処理される様子を、この画面の進み具合で見る（完了済みとして取り込んだ件は処理しない）
+      onImported(backfill ? null : ids.length)
     } catch (e: unknown) {
       setError(`${ids.length} 件まで取り込んだところで失敗しました: ${errorMessage(e)}`)
     } finally {
@@ -519,13 +517,11 @@ export function Connectors() {
   const origin = window.location.origin
   return (
     <Page wide crumbs={[{ label: '管理', to: '/admin' }, { label: 'コネクタ' }]}>
-      <AdminTabs />
       <div className="panel-head">
         <h1>コネクタ</h1>
         <span className="muted small">受付箱への入り口。</span>
       </div>
       <ConnectorCards />
-      <FileImport />
       <SlackPurgePanel />
       <section className="panel">
         <h2>API から登録する</h2>

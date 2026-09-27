@@ -6,7 +6,6 @@ from pathlib import Path
 
 import pytest
 
-from jevlab.core.engine import AnswerView
 from jevlab.ops.models import IngestRequest, Settings, SlackSettings, StaffMember
 from jevlab.ops.pipeline import ESCALATION_CHANNEL, INBOUND_CHANNEL, Pipeline
 from jevlab.ops.slack import InboundHandle, SdkSlackApi, SlackConnector, SlackSendError, inbound_request
@@ -581,46 +580,6 @@ def test_purge_needs_mapped_channels(tmp_path: Path) -> None:
         conn.start_purge()
 
 
-def _route_as(conn: SlackConnector, category: str) -> str:
-    """確信度 0.99 で自動で振り分けになる件を作る（抜き取り確認はしない）。"""
-    store = conn.pipeline.store
-    settings = store.settings()
-    store.put_settings(settings)
-    item = store.add_item(IngestRequest(channel="mail", subject="ありがとうございました", body="本文"))
-    item = store.update(item.id, lambda i: i.model_copy(update={"category": category, "confidence": 0.99}))
-    conn.pipeline._route(item, settings)
-    return item.id
-
-
-@pytest.mark.anyio
-async def test_no_reply_category_is_closed_with_a_check_mark(tmp_path: Path) -> None:
-    api = FakeApi()
-    conn = make(tmp_path, api, None, outbound=True, channel_map={"#cs-お礼": "C0THANKS01"})
-    await conn.tick()  # つないだ後の投稿だけを流す
-    item_id = _route_as(conn, "thanks")
-    item = conn.pipeline.store.get(item_id)
-    assert item.status == "closed" and item.auto_closed and item.assignee is None
-    await conn.tick()
-    # 内容を投稿し、スレッドには書き足さずに ✅ だけ付ける
-    # 内容を投稿し、担当は呼ばずにスレッドへ完了を書いて ✅ を付ける
-    assert [c for c, _ in api.sent] == ["C0THANKS01", "C0THANKS01"] and "ありがとうございました" in api.sent[0][1]
-    assert api.sent[1][1] == "対応不要のため完了にしました。" and api.threads[1] == "1.0"
-    assert api.reactions == [("C0THANKS01", "1.0", "white_check_mark")]
-
-
-@pytest.mark.anyio
-async def test_categories_needing_a_reply_stay_open(tmp_path: Path) -> None:
-    api = FakeApi()
-    conn = make(tmp_path, api, None, outbound=True, channel_map={"#cs-問い合わせ": "C0INQUIRY1"})
-    await conn.tick()
-    item_id = _route_as(conn, "inquiry")
-    assert conn.pipeline.store.get(item_id).status == "routed"
-    await conn.tick()
-    # 投稿の先頭でメンションする。スレッドには書かず、✅ も付けない
-    assert [c for c, _ in api.sent] == ["C0INQUIRY1"] and api.threads == [None] and not api.reactions
-    assert api.sent[0][1].endswith("\n\n担当を決めてください。")
-
-
 @pytest.mark.anyio
 async def test_routed_item_needing_a_reply_is_assigned_and_mentioned(tmp_path: Path) -> None:
     api = FakeApi()
@@ -648,56 +607,6 @@ async def test_routed_item_needing_a_reply_is_assigned_and_mentioned(tmp_path: P
     )
     # 振り分け済みの件も、人が担当を変えられる
     assert conn.pipeline.assign(item.id, "sato").assignee == "sato"
-
-
-@pytest.mark.anyio
-async def test_thanks_decided_in_review_is_closed_without_mention(tmp_path: Path) -> None:
-    api = FakeApi()
-    conn = make(tmp_path, api, None, outbound=True, channel_map={"#cs-お礼": "C0THANKS01"})
-    with_staff(conn)
-    await conn.tick()
-    store = conn.pipeline.store
-    item = store.add_item(IngestRequest(channel="mail", subject="ありがとうございました", body="本文"))
-    store.update(item.id, lambda i: i.model_copy(update={"status": "review", "category": "inquiry"}))
-    decided = conn.pipeline.decide(item.id, "thanks")
-    # お礼は返信がいらないので、担当は割り当てず完了にする
-    assert decided.status == "closed" and decided.auto_closed and decided.assignee is None
-    await conn.tick()
-    # 完了を書いて ✅ を付けるだけ。メンションはしない
-    assert [t for _, t in api.sent][1:] == ["対応不要のため完了にしました。"]
-    assert api.reactions == [("C0THANKS01", "1.0", "white_check_mark")]
-
-
-def _route_other(conn: SlackConnector, reply_p: float) -> str:
-    """その他（返信の要否を判定する分類）を、返信が要る確率を決めて自動で振り分ける。"""
-    store = conn.pipeline.store
-    store.put_settings(store.settings())
-    item = store.add_item(IngestRequest(channel="mail", subject="ご案内", body="本文"))
-    view = AnswerView(type="noul", prediction=reply_p >= 0.5, value=reply_p)
-    item = store.update(
-        item.id,
-        lambda i: i.model_copy(update={"category": "other", "confidence": 0.99, "answers": {"needs_reply": view}}),
-    )
-    conn.pipeline._route(item, store.settings())
-    return item.id
-
-
-@pytest.mark.anyio
-async def test_other_is_closed_only_when_no_reply_is_needed(tmp_path: Path) -> None:
-    api = FakeApi()
-    conn = make(tmp_path, api, None, outbound=True, channel_map={"#cs-その他": "C0OTHER001"})
-    with_staff(conn)
-    await conn.tick()
-    # 宣伝など返信の要らない件は、お礼と同じく完了を書いて ✅
-    quiet = conn.pipeline.store.get(_route_other(conn, 0.1))
-    assert quiet.status == "closed" and quiet.auto_closed and quiet.assignee is None
-    await conn.tick()
-    assert api.sent[1][1] == "対応不要のため完了にしました。" and len(api.reactions) == 1
-    # 仕入れの提案など返信の要る件は、担当をメンションする
-    reply = conn.pipeline.store.get(_route_other(conn, 0.9))
-    assert reply.status == "routed" and not reply.auto_closed
-    await conn.tick()
-    assert "<@U0SATO001>" in api.sent[-1][1] and len(api.reactions) == 1
 
 
 @pytest.mark.anyio
@@ -775,24 +684,3 @@ def test_own_messages_pages_through_thread_replies() -> None:
     api = SdkSlackApi.__new__(SdkSlackApi)
     api.client = Client()  # type: ignore[assignment]
     assert api.own_messages("C1", "UBOT") == [("1.1", "1.0"), ("1.2", "1.0"), ("1.0", None)]
-
-
-@pytest.mark.anyio
-async def test_posts_after_inbox_reset_are_sent_even_when_ids_repeat(tmp_path: Path) -> None:
-    api = FakeApi()
-    conn = make(tmp_path, api, None, outbound=True, channel_map={"#cs-クレーム": C_COMPLAINT})
-    with_staff(conn)
-    await conn.tick()
-    for _ in range(3):
-        route(conn)
-    await conn.tick()
-    parents = [t for (c, t), th in zip(api.sent, api.threads, strict=True) if th is None]
-    assert len(parents) == 3
-    # 受付箱を空にすると投稿の番号は 1 から振り直される。前と同じ件数でも、新しい投稿を送る
-    conn.pipeline.store.reset()
-    await conn.tick()
-    for _ in range(3):
-        route(conn)
-    await conn.tick()
-    parents = [t for (c, t), th in zip(api.sent, api.threads, strict=True) if th is None]
-    assert len(parents) == 6

@@ -7,7 +7,6 @@ import { Page, useTitle } from '../../shell'
 import { ops, type Curve, type PiiMatrix, type Settings } from '../api'
 import { CONFIDENCE_NOTE, staffName } from '../format'
 import { useOps, usePolling } from '../state'
-import { AdminTabs } from '../tabs'
 
 const W = 520
 const H = 220
@@ -369,7 +368,6 @@ export function AdminPii() {
   const { meta } = useOps()
   return (
     <Page wide crumbs={[{ label: '管理', to: '/admin' }, { label: '個人情報の判定' }]}>
-      <AdminTabs />
       <div className="panel-head">
         <h1>個人情報の判定</h1>
       </div>
