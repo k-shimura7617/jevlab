@@ -143,6 +143,26 @@ def _stable_unit(seed: str) -> float:
 
 
 Route = Literal["routed", "review", "escalated"]
+# 自動で振り分けた後にすること。close: 完了にする／assign: 担当を割り当てる／hold: 抜き取り確認のため、そのまま人を待つ
+AfterRoute = Literal["close", "assign", "hold"]
+
+# ---- 仕分けの順番（ここだけで決める。docs/adr/0029 と tests/test_ops_route_order.py が同じ表） ----
+#
+# 1. 最初の振り分け（decide_route）。上から順に見て、最初に当てはまったもので決める。
+#    R1 返信のいらない分類で、分類の確信度 ≥ 自動の閾値 → 自動（不満・緊急の兆しや担当の推定では止めない）
+#    R2 強い不満（P(不満度 2) ≥ 設定値。確率がなければ不満度 2） → エスカレーション（設定でオフにできる）
+#    R3 緊急 → エスカレーション（設定でオフにできる）
+#    R4 分類の確信度 ≥ 自動の閾値で、判断が割れている → 確認待ち
+#    R5 分類の確信度 ≥ 自動の閾値で、判断材料が足りない → 確認待ち（設定でオフにできる）
+#    R6 分類の確信度 ≥ 自動の閾値 → 自動
+#    R7 分類の確信度 ≥ 確認の閾値 → 確認待ち
+#    R8 それ以外 → エスカレーション
+#
+# 2. 自動で振り分けた後（after_route）。返信が要るかは no_reply_reason で決める。
+#    A1 返信が要らず、抜き取り確認に選ばれた → そのまま（人が見るまで完了にしない）
+#    A2 返信が要らない → 完了（Slack には投稿し、スレッドに完了を書いて ✅）
+#    A3 返信が要る → 担当を割り当てる（確率が閾値に届かなければ仮で）
+#    返信が要らない: 返信のいらない分類／返信の要否を判定する分類で、強い不満・緊急の兆しがなく P(返信が要る) < 0.5
 
 
 # 返信が要る確率がこれ未満なら、返信は要らないとみなす（返信の要否を判定する分類だけ）
@@ -182,8 +202,16 @@ def _needs_attention(item: Item, settings: Settings) -> bool:
     return urgent is not None and urgent.prediction is True
 
 
+def after_route(item: Item, settings: Settings, *, audit: bool) -> tuple[AfterRoute, str | None]:
+    """自動で振り分けた件のその後（仕分けの順番の A1〜A3）。完了にするときは、その理由も返す。"""
+    no_reply = no_reply_reason(item, settings)
+    if no_reply is None:
+        return "assign", None
+    return ("hold", None) if audit else ("close", no_reply)
+
+
 def decide_route(item: Item, settings: Settings) -> tuple[Route, str]:
-    """分類の確信度と業務ルールから、自動振り分け・確認待ち・エスカレーションを決める。"""
+    """分類の確信度と業務ルールから、自動振り分け・確認待ち・エスカレーションを決める（仕分けの順番の R1〜R8）。"""
     c = settings.classify
     answers = item.answers
     conf = item.confidence or 0.0
@@ -659,9 +687,8 @@ class Pipeline:
                     "system",
                     f"自動で {settings.route_channel(item.category)} へ（{reason}）",
                 )
-                no_reply = no_reply_reason(item, settings)
-                closes = no_reply is not None and not audit
-                if no_reply is None:
+                then, no_reply = after_route(item, settings, audit=audit)
+                if then == "assign":
                     # 返信の要る件は、担当を割り当てて（届かなければ仮で）Slack でメンションする
                     self._auto_assign(item, settings)
                 self._post_routed(item, by="jevlab（自動）")
@@ -669,8 +696,7 @@ class Pipeline:
                     self.store.add_event(
                         item.id, "audit", "system", f"抜き取り確認の対象に選ばれました（{settings.audit_rate:.0%}）"
                     )
-                elif no_reply is not None and closes:
-                    # 抜き取り確認に選ばれた件は、人が見るまで完了にしない
+                elif then == "close" and no_reply is not None:
                     self._auto_close(item, no_reply)
             case "review":
                 self.store.add_event(item.id, "review", "system", f"確認待ちへ（{reason}）")
