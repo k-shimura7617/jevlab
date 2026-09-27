@@ -326,22 +326,18 @@ def test_refund_priority_counts_only_when_refund_is_mentioned() -> None:
     assert priority_parts({"refund": refund})["refund"] == 0.5
 
 
-def test_thanks_with_urgency_or_strong_frustration_is_never_auto_closed() -> None:
+def test_confident_thanks_is_auto_closed_even_with_urgency_or_frustration() -> None:
     from jevlab.ops.pipeline import no_reply_reason
 
     s = Settings()
-    calm = make_item(category="thanks", answers=answers(0.99))
-    assert no_reply_reason(calm, s) is not None
-    urgent = make_item(category="thanks", answers=answers(0.99, urgent=0.9))
-    angry = make_item(category="thanks", answers=answers(0.99, frustration=2))
-    # エスカレーションの設定をオフにしていても、兆しがある件は自動で完了にしない
-    off = s.model_copy(
-        update={
-            "classify": s.classify.model_copy(update={"escalate_urgent": False, "escalate_strong_frustration": False})
-        }
-    )
-    for item in (urgent, angry):
-        assert no_reply_reason(item, s) is None and no_reply_reason(item, off) is None
+    # 分類がお礼で確信度が閾値以上なら、不満・緊急の兆しがあっても人を呼ばずに完了にする
+    for a in (answers(0.99), answers(0.99, urgent=0.9), answers(0.99, frustration=2)):
+        item = make_item(category="thanks", confidence=0.99, answers=a)
+        assert decide_route(item, s)[0] == "routed"
+        assert no_reply_reason(item, s) is not None
+    # 確信度が閾値未満のお礼は、これまでどおりの判定（緊急ならエスカレーション）
+    low = make_item(category="thanks", confidence=0.7, answers=answers(0.7, urgent=0.9))
+    assert decide_route(low, s)[0] == "escalated"
 
 
 def test_reopen_returns_an_auto_closed_item_to_routed(tmp_path: Path) -> None:
