@@ -816,3 +816,24 @@ def test_own_messages_pages_through_thread_replies() -> None:
     api = SdkSlackApi.__new__(SdkSlackApi)
     api.client = Client()  # type: ignore[assignment]
     assert api.own_messages("C1", "UBOT") == [("1.1", "1.0"), ("1.2", "1.0"), ("1.0", None)]
+
+
+@pytest.mark.anyio
+async def test_posts_after_inbox_reset_are_sent_even_when_ids_repeat(tmp_path: Path) -> None:
+    api = FakeApi()
+    conn = make(tmp_path, api, None, outbound=True, channel_map={"#cs-クレーム": C_COMPLAINT})
+    with_staff(conn)
+    await conn.tick()
+    for _ in range(3):
+        route(conn)
+    await conn.tick()
+    parents = [t for (c, t), th in zip(api.sent, api.threads, strict=True) if th is None]
+    assert len(parents) == 3
+    # 受付箱を空にすると投稿の番号は 1 から振り直される。前と同じ件数でも、新しい投稿を送る
+    conn.pipeline.store.reset()
+    await conn.tick()
+    for _ in range(3):
+        route(conn)
+    await conn.tick()
+    parents = [t for (c, t), th in zip(api.sent, api.threads, strict=True) if th is None]
+    assert len(parents) == 6
