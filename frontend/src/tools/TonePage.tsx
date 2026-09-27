@@ -16,6 +16,7 @@ import {
   type ToneResult,
 } from './api'
 import { useElapsed } from './common'
+import { PiiCheckButton } from './PiiCheck'
 import { Sentences } from './Sentences'
 import { FoldClose } from '../components/fold'
 
@@ -396,7 +397,11 @@ export function TonePage() {
       {metaError && <div className="error">{metaError}</div>}
       <div className="tone-layout">
         <section className="panel tone-input">
-          <h2>送る前の文面</h2>
+          <div className="row label-row">
+            <h2 className="inline">送る前の文面</h2>
+            <span className="spacer" />
+            <PiiCheckButton label="送る前の文面" text={text} onMask={setText} />
+          </div>
           <div className="row">
             <span className="muted small">例文:</span>
             {SAMPLES.map((s) => (

@@ -4,6 +4,7 @@ import { pct, TARGET_SHORT, usd } from '../format'
 import { Page, useShell, useTitle } from '../shell'
 import { tools, type ClauseLevel, type ClauseResult, type ContractMeta, type ContractResult, type Explanation } from './api'
 import { useElapsed } from './common'
+import { PiiCheckButton } from './PiiCheck'
 import { Sentences } from './Sentences'
 
 // 評価アプリ「契約条項のリスク判定」の評価データから作った例（架空の SaaS 利用規約）
@@ -128,7 +129,11 @@ export function ContractPage() {
       {metaError && <div className="error">{metaError}</div>}
       <div className="tone-layout">
         <section className="panel tone-input contract-input">
-          <h2>契約書・規約の本文</h2>
+          <div className="row label-row">
+            <h2 className="inline">契約書・規約の本文</h2>
+            <span className="spacer" />
+            <PiiCheckButton label="契約書・規約" text={text} onMask={setText} />
+          </div>
           <div className="row">
             <button type="button" className="filter-chip" onClick={() => setText(SAMPLE)}>
               例: SaaS 利用規約

@@ -9,7 +9,7 @@ from typing import Annotated, Final
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from fastapi.responses import StreamingResponse
-from pydantic import BaseModel
+from pydantic import BaseModel, StringConstraints
 from typesafe_sdk import TypeSafeError
 
 from jevlab.core import target
@@ -25,7 +25,9 @@ from jevlab.core.generator import (
     make_generator,
     make_stream_generator,
 )
-from jevlab.ops.pipeline import BackendLike
+from jevlab.ops.pii import PII_LABELS, PII_TYPES, Span, apply_mask
+from jevlab.ops.pipeline import TARGET_NAMES, BackendLike, Pipeline
+from jevlab.ops.store import ItemNotFoundError
 from jevlab.tools import contract, reply, tone
 
 router = APIRouter(prefix="/api/tools", tags=["tools"])
@@ -249,14 +251,45 @@ async def reply_meta() -> ReplyMeta:
 
 class ReplyRequest(BaseModel):
     inquiry: reply.Text
+    item_id: reply.ItemId = None
     draft: reply.Text
     policy: reply.Policy = ""
 
 
+def _pipeline(request: Request) -> Pipeline:
+    pipeline: Pipeline = request.app.state.ops
+    return pipeline
+
+
+def _inquiry(request: Request, item_id: str | None, inquiry: str) -> str:
+    """件から開いたときは、問い合わせをサーバ側で件の本文から作る（伏せ字済み。画面から来た値は使わない）。
+
+    自由入力の問い合わせ・下書きは会社側の文なので、既定では伏せない（ADR 0028）。
+    """
+    if item_id is None:
+        return inquiry
+    try:
+        return reply.item_inquiry(_pipeline(request).store.get(item_id))
+    except ItemNotFoundError as e:
+        raise HTTPException(status_code=404, detail=str(e.args[0])) from e
+
+
+class ReplyItem(BaseModel):
+    id: str
+    inquiry: str
+
+
+@router.get("/reply/item/{item_id}")
+async def reply_item(item_id: str, request: Request) -> ReplyItem:
+    """返信前チェックを件から開いたときの問い合わせ（伏せ字済み）。"""
+    return ReplyItem(id=item_id, inquiry=_inquiry(request, item_id, ""))
+
+
 @router.post("/reply")
-async def check_reply(req: ReplyRequest, backend: Annotated[BackendLike, Depends(_backend)]) -> reply.ReplyResult:
-    # 個人情報の候補を伏せてから外部（Jev）に送る
-    inquiry, draft = reply.mask(req.inquiry), reply.mask(req.draft)
+async def check_reply(
+    req: ReplyRequest, request: Request, backend: Annotated[BackendLike, Depends(_backend)]
+) -> reply.ReplyResult:
+    inquiry, draft = _inquiry(request, req.item_id, req.inquiry), req.draft
     questions = reply.questions()
     try:
         judged = await judge(
@@ -307,12 +340,14 @@ async def _written(request: Request, model: ClaudeModel, system: str, prompt: st
 
 @router.post("/reply/rewrite")
 async def rewrite_reply(req: reply.RewriteRequest, request: Request) -> tone.RewriteResult:
+    req = req.model_copy(update={"inquiry": _inquiry(request, req.item_id, req.inquiry)})
     return await _written(request, req.model, reply.REWRITE_SYSTEM, reply.rewrite_prompt(req), "修正案")
 
 
 @router.post("/reply/draft")
 async def draft_reply(req: reply.DraftRequest, request: Request) -> tone.RewriteResult:
-    """問い合わせ（個人情報の候補は伏せる）から、返信の案を Claude に書かせる。"""
+    """問い合わせから、返信の案を Claude に書かせる（件から開いたときは伏せ字にした問い合わせを使う）。"""
+    req = req.model_copy(update={"inquiry": _inquiry(request, req.item_id, req.inquiry)})
     return await _written(request, req.model, reply.DRAFT_SYSTEM, reply.draft_prompt(req), "返信の案")
 
 
@@ -327,8 +362,9 @@ async def suggest_reply_stream(req: reply.SuggestRequest, request: Request) -> S
     - {"type": "text", "text": "…"}: 書いた分
     - {"type": "done", "model": "…", "latency_ms": 1234.5}: 書き終わり
     - {"type": "error", "message": "…"}: 失敗（途中まで書いた分は画面に残る）
-    問い合わせ・下書きの個人情報の候補は、プロンプトを作るときに伏せる。
+    件から開いたときは、問い合わせをサーバ側で伏せ字にした件の本文に置き換える。
     """
+    req = req.model_copy(update={"inquiry": _inquiry(request, req.item_id, req.inquiry)})
     system, prompt = reply.suggest_system_and_prompt(req)
     slots: asyncio.Semaphore = request.app.state.rewrite_slots
 
@@ -346,3 +382,38 @@ async def suggest_reply_stream(req: reply.SuggestRequest, request: Request) -> S
             yield _line({"type": "error", "message": f"AI返信案を作れませんでした: {e}"})
 
     return StreamingResponse(body(), media_type="application/x-ndjson")
+
+
+# ---- 個人情報チェック（ローカル） ----
+
+# 契約書など長い文も調べられるように、ツールの入力の上限に合わせる
+PII_CHECK_MAX: Final = 20000
+
+
+class PiiCheckRequest(BaseModel):
+    text: Annotated[str, StringConstraints(min_length=1, max_length=PII_CHECK_MAX)]
+
+
+class PiiCheckResult(BaseModel):
+    spans: list[Span]
+    # 個人情報と判定した候補（confirmed）を【種類】に置き換えた本文
+    masked_text: str
+    # Kev（または MOCK）に聞いたか。Kev を使わない設定か、届かないときは規則だけ
+    used_model: bool
+    # 聞いた接続先の名前（規則だけなら null）
+    model_name: str | None
+    labels: dict[str, str]
+
+
+@router.post("/pii-check")
+async def pii_check(req: PiiCheckRequest, request: Request) -> PiiCheckResult:
+    """ツールの入力をローカルで調べる。規則と、設定で使うときだけ Kev。Jev・Claude には送らない。"""
+    spans, asked = await _pipeline(request).check_pii(req.text)
+    masked = apply_mask(req.text, spans, dict.fromkeys(PII_TYPES, "mask"))
+    return PiiCheckResult(
+        spans=spans,
+        masked_text=masked,
+        used_model=asked is not None,
+        model_name=TARGET_NAMES[asked] if asked else None,
+        labels=dict(PII_LABELS),
+    )
