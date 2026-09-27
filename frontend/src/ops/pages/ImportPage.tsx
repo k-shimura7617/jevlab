@@ -2,6 +2,7 @@ import { useState } from 'react'
 import { Link } from 'react-router'
 import { Page, useTitle } from '../../shell'
 import { useOps } from '../state'
+import { SettingsTabs } from '../tabs'
 import { FileImport } from './Connectors'
 import { FlowProgress } from './OpsHome'
 
@@ -13,7 +14,8 @@ export function ImportPage() {
   const [imported, setImported] = useState<number | null | undefined>(undefined)
   const f = overview?.flow
   return (
-    <Page wide crumbs={[{ label: '運用', to: '/ops' }, { label: '取り込み' }]}>
+    <Page wide crumbs={[{ label: '運用', to: '/ops' }, { label: '設定' }]}>
+      <SettingsTabs />
       <div className="panel-head">
         <h1>取り込み</h1>
       </div>

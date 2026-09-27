@@ -137,7 +137,7 @@ flowchart LR
 - 画面のまとまり:
   - 最初の画面: `/`（運用ダッシュボード `/ops` に移る）
   - 評価ダッシュボード: `/eval`、`/eval/apps/:name`、`/eval/apps/:name/run`
-  - 運用（利用者）: `/ops`（対応が必要な問い合わせの数と処理フロー）、`/ops/inbox`、取り込み `/ops/import`、対応待ち `/ops/pii|review|escalations`（`/ops/waiting` は件のある手前のタブへ移す）、成績 `/ops/tuning`、設定 `/ops/settings|staff|settings/slack`。`/ops/items/:id` は受付箱 `/ops/inbox?id=` へ移す
+  - 運用（利用者）: `/ops`（対応が必要な問い合わせの数と処理フロー）、`/ops/inbox`、対応待ち `/ops/pii|review|escalations`（`/ops/waiting` は件のある手前のタブへ移す）、成績 `/ops/tuning`、設定 `/ops/settings|staff|settings/slack|import`。`/ops/items/:id` は受付箱 `/ops/inbox?id=` へ移す
   - 管理（開発側。左のメニューの「管理」）: `/admin`（処理の状況）、`/admin/settings|pii|connectors|channels|audit`。以前の `/ops/channels|connectors|audit` はここへ移す（[ADR-0030](adr/0030-user-screens-and-admin.md)）
   - ツール: `/tools/tone`、`/tools/reply`（`?item=` で件の問い合わせを入れる。件の詳細の「返信内容の検討」から開く）、`/tools/contract`。`/tools` だけのパスはない
   - ツールの共通部品: `tools/PiiCheck.tsx`（個人情報チェック）、`tools/Sentences.tsx`（句点で改行）、`tools/common.ts`

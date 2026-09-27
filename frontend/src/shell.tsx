@@ -324,9 +324,6 @@ function Sidebar() {
         <NavLink to="/ops/inbox" className={navCls}>
           受付箱
         </NavLink>
-        <NavLink to="/ops/import" className={navCls}>
-          取り込み
-        </NavLink>
         <Link to="/ops/waiting" className={inQueue ? 'active' : undefined}>
           対応待ち{badge(waiting)}
         </Link>
