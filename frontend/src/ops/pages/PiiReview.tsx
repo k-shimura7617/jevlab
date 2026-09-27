@@ -9,6 +9,7 @@ import { BulkBar, CheckRow, Empty, ItemRow, KevQueueNote } from '../components'
 import { ACTION_LABELS, PII_FLAG_LABELS, PII_FLAG_NOTES, safeToBulk } from '../format'
 import { SelectableText } from '../SelectableText'
 import { useOps, usePolling } from '../state'
+import { useFillHeight } from '../fill'
 
 const PII_ORDER: PiiType[] = ['person_name', 'phone', 'email', 'sns_account', 'postal_code', 'address', 'card', 'bank_account', 'birthday']
 
@@ -307,6 +308,7 @@ function useChecked(items: Item[]): [Set<string>, (id: string, on: boolean) => v
 
 export function PiiReview() {
   useTitle('個人情報の確認')
+  const fill = useFillHeight<HTMLDivElement>()
   const { meta, settings, refresh, overview } = useOps()
   const [params, setParams] = useSearchParams()
   const list = usePolling(() => ops.items(['pii_review']))
@@ -380,7 +382,7 @@ export function PiiReview() {
         <h1>個人情報の確認</h1>
         <KevQueueNote queue={overview?.kev_queue} available={overview?.kev?.available ?? true} />
       </div>
-      <div className="queue-layout">
+      <div className="queue-layout fill" ref={fill}>
         <section className="panel list-pane">
           <h2>
             個人情報の確認待ち <span className="n">{items.length}</span>
@@ -412,7 +414,7 @@ export function PiiReview() {
                 </button>
               </CheckRow>
             ))}
-            {list.data && items.length === 0 && <Empty>確認待ちの件はありません</Empty>}
+            {list.data && items.length === 0 && <Empty>個人情報の確認はすべて済みました</Empty>}
           </div>
         </section>
         <section className="panel detail-pane">
@@ -432,7 +434,7 @@ export function PiiReview() {
               }}
             />
           ) : (
-            <Empty>確認待ちはありません</Empty>
+            <Empty>個人情報の確認はすべて済みました</Empty>
           )}
         </section>
       </div>

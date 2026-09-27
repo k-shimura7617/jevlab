@@ -4,6 +4,7 @@ import { ops, type Item, type Status } from '../api'
 import { Empty, ItemRow } from '../components'
 import { matchesWho, useAssigneeFilter } from '../assigneeFilter'
 import { ItemPanel } from '../ItemPanel'
+import { useFillHeight } from '../fill'
 import { useOps, usePolling } from '../state'
 
 type Tab = 'all' | 'active' | 'human' | 'done' | 'error'
@@ -17,6 +18,7 @@ const TABS: { id: Tab; label: string; statuses: Status[] | null }[] = [
 
 export function Inbox() {
   useTitle('受付箱')
+  const fill = useFillHeight<HTMLDivElement>()
   const { meta, settings } = useOps()
   const [tab, setTab] = useState<Tab>('all')
   const [query, setQuery] = useState('')
@@ -44,7 +46,7 @@ export function Inbox() {
       <div className="panel-head">
         <h1>受付箱</h1>
       </div>
-      <div className="inbox-layout">
+      <div className="inbox-layout fill" ref={fill}>
         <section className="panel list-pane">
           <div className="tabs" role="tablist">
             {TABS.map((t) => (
@@ -78,7 +80,7 @@ export function Inbox() {
             ))}
             {list.data && visible.length === 0 && (
               <Empty>
-                {items.length === 0 ? 'まだ何も届いていません' : '該当する件はありません'}
+                {items.length === 0 ? 'まだ何も届いていません' : '条件に合う問い合わせはありません'}
               </Empty>
             )}
           </div>
