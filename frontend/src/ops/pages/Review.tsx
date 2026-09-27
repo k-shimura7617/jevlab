@@ -81,10 +81,6 @@ export function Review() {
       <QueueTabs />
       <div className="panel-head">
         <h1>分類の確認</h1>
-        <span className="muted small">
-          数字キーで確定、j / k で移動
-          {meta && `（${Object.values(meta.categories).map((l, i) => `${i + 1}: ${l}`).join(' ／ ')}）`}
-        </span>
       </div>
       <div className="queue-layout fill" ref={fill}>
         <section className="panel list-pane">
