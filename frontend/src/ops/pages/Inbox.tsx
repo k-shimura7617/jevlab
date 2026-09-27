@@ -1,10 +1,9 @@
-import { useEffect, useRef, useState } from 'react'
-import { useSearchParams } from 'react-router'
+import { useEffect, useState } from 'react'
 import { errorMessage } from '../../api'
 import { Page, useTitle } from '../../shell'
 import { ops, type Channel, type Item, type Status } from '../api'
 import { Empty, ItemRow } from '../components'
-import { CHANNEL_SHORT } from '../format'
+import { matchesWho, useAssigneeFilter } from '../assigneeFilter'
 import { ItemPanel } from '../ItemPanel'
 import { useOps, usePolling } from '../state'
 
@@ -97,37 +96,28 @@ function Compose({ onClose, onSent }: { onClose: () => void; onSent: (item: Item
 export function Inbox() {
   useTitle('受付箱')
   const { meta, settings, refresh } = useOps()
-  const [params, setParams] = useSearchParams()
   const [tab, setTab] = useState<Tab>('all')
   const [query, setQuery] = useState('')
-  const [channel, setChannel] = useState<Channel | 'all'>('all')
   const [composing, setComposing] = useState(false)
   // 完了した件は既定で隠す（人の対応が要る件を見つけやすくするため）
   const [showClosed, setShowClosed] = useState(false)
-  const closedShownFor = useRef(new Set<string>())
   const list = usePolling(() => ops.items())
-  const selected = params.get('id')
+  const { id: selected, who, select, setWho } = useAssigneeFilter(list.data)
   const items = list.data ?? []
+  const staff = settings?.staff ?? []
   const q = query.trim()
   const inTab = (i: Item, t: Tab) => {
-    if (!showClosed && i.status === 'closed') return false
+    // 完了した件は既定で隠す。ただしリンク（Slack など）で開いた件は、完了していても一覧に出す
+    if (!showClosed && i.status === 'closed' && i.id !== selected) return false
     const statuses = TABS.find((x) => x.id === t)?.statuses
     return !statuses || statuses.includes(i.status)
   }
   const visible = items.filter(
     (i) =>
       inTab(i, tab) &&
-      (channel === 'all' || i.channel === channel) &&
+      matchesWho(i, who) &&
       (!q || `${i.id} ${i.from_name} ${i.subject} ${i.body}`.includes(q)),
   )
-  const select = (id: string | null) => setParams(id ? { id } : {}, { replace: true })
-  // リンク（Slack など）で完了した件を開いたときは、一覧にも出るよう「完了を表示」にする
-  const openedClosed = items.some((i) => i.id === selected && i.status === 'closed')
-  useEffect(() => {
-    if (!selected || !openedClosed || closedShownFor.current.has(selected)) return
-    closedShownFor.current.add(selected)
-    setShowClosed(true)
-  }, [selected, openedClosed])
   return (
     <Page wide crumbs={[{ label: '運用', to: '/ops' }, { label: '受付箱' }]}>
       <div className="panel-head">
@@ -148,11 +138,12 @@ export function Inbox() {
           </div>
           <div className="row">
             <input className="search" type="search" placeholder="件名・本文・差出人・ID で検索" value={query} onChange={(e) => setQuery(e.target.value)} />
-            <select aria-label="受信経路" value={channel} onChange={(e) => setChannel(e.target.value as Channel | 'all')}>
-              <option value="all">すべての経路</option>
-              {(Object.keys(CHANNEL_SHORT) as Channel[]).map((c) => (
-                <option key={c} value={c}>
-                  {CHANNEL_SHORT[c]}
+            <select aria-label="担当者" value={who} onChange={(e) => setWho(e.target.value)}>
+              <option value="all">全員</option>
+              <option value="none">未割り当て</option>
+              {staff.map((s) => (
+                <option key={s.id} value={s.id}>
+                  {s.name}
                 </option>
               ))}
             </select>
