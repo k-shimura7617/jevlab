@@ -1,4 +1,5 @@
-import { Link } from 'react-router'
+import { useEffect } from 'react'
+import { Link, useLocation } from 'react-router'
 import { Page, useTitle } from '../../shell'
 import { useOps } from '../state'
 import { FlowSection, KevDownBanner } from './OpsHome'
@@ -8,6 +9,13 @@ export function OpsHome() {
   useTitle('運用')
   const { overview, overviewError } = useOps()
   const c = overview?.counts
+  // 取り込みから移ってきたときは、取り込んだ件数を処理フローの進み具合に使い、処理フローまで送る
+  const { hash, state } = useLocation()
+  const imported = typeof state === 'object' && state !== null && 'imported' in state && typeof state.imported === 'number' ? state.imported : null
+  const flowShown = overview?.flow !== undefined
+  useEffect(() => {
+    if (hash === '#flow' && flowShown) document.getElementById('flow')?.scrollIntoView({ block: 'start' })
+  }, [hash, flowShown])
   const rows = c
     ? [
         { label: '個人情報の確認', n: c.pii_review, to: '/ops/pii' },
@@ -40,7 +48,7 @@ export function OpsHome() {
           </Link>
         </section>
       )}
-      <FlowSection />
+      <FlowSection imported={imported} />
     </Page>
   )
 }
