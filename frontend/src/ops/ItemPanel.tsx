@@ -1,6 +1,6 @@
 // 1 件の詳細（受付箱の右側と、件の詳細ページで使う）
 import { useEffect, useState } from 'react'
-import { Link } from 'react-router'
+import { Link, useLocation } from 'react-router'
 import { errorMessage, type QuestionInfo } from '../api'
 import { ProbabilityRows } from '../components/report'
 import { pct } from '../format'
@@ -62,6 +62,7 @@ function QuickActions({
   onDone: () => void
   here?: 'pii' | 'escalations'
 }) {
+  const location = useLocation()
   const [error, setError] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
   const run = (f: () => Promise<unknown>) => {
@@ -108,7 +109,8 @@ function QuickActions({
       )}
       {item.sent_text !== null && item.status !== 'queued' && item.status !== 'processing' && (
         // 問い合わせ（個人情報を伏せて Jev に送った本文）を入れて、返信前チェックを開く
-        <Link className="btn secondary" to={`/tools/reply?item=${encodeURIComponent(item.id)}`}>
+        // from: 検討を終えたら、開いた画面（エスカレーション・確認待ちなど）に戻れるようにする
+        <Link className="btn secondary" to={`/tools/reply?item=${encodeURIComponent(item.id)}&from=${encodeURIComponent(location.pathname + location.search)}`}>
           返信内容の検討
         </Link>
       )}

@@ -107,8 +107,8 @@ export function Inbox() {
   const staff = settings?.staff ?? []
   const q = query.trim()
   const inTab = (i: Item, t: Tab) => {
-    // 完了した件は既定で隠す。ただしリンク（Slack など）で開いた件は、完了していても一覧に出す
-    if (!showClosed && i.status === 'closed' && i.id !== selected) return false
+    // 完了した件は「完了を表示」を付けたときだけ出す（開いている件も同じ。詳細は右に出したままにする）
+    if (!showClosed && i.status === 'closed') return false
     const statuses = TABS.find((x) => x.id === t)?.statuses
     return !statuses || statuses.includes(i.status)
   }

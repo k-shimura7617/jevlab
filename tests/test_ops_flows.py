@@ -127,9 +127,11 @@ async def test_other_is_closed_or_assigned_by_the_reply_judgment(tmp_path: Path)
     assert quiet.status == "closed" and quiet.assignee is None
     assert ask.status == "routed" and ask.assignee == "tamura" and ask.assign_provisional
     await conn.tick()
-    texts = [t for t, th in sent_to(api, CHANNELS["#cs-その他"]) if th is not None]
-    # 送る順番は問わない
-    assert sorted(texts) == sorted([AUTO_CLOSE_TEXT, "<@U0TAMURA1>\n対応お願いします。\n担当確信度 0.30"])
+    posts = sent_to(api, CHANNELS["#cs-その他"])
+    # 完了はスレッドに書き、返信の要る件は投稿の先頭でメンションする
+    assert [t for t, th in posts if th is not None] == [AUTO_CLOSE_TEXT]
+    mentions = [t for t, th in posts if th is None and t.startswith("<@")]
+    assert len(mentions) == 1 and mentions[0].startswith("<@U0TAMURA1>\n対応お願いします。\n担当確信度 0.30\n")
 
 
 @pytest.mark.anyio
@@ -140,7 +142,8 @@ async def test_escalation_is_mentioned_and_closed_with_notes_in_its_thread(tmp_p
     assert item.status == "escalated" and item.assignee == "tamura" and not item.assign_provisional
     await conn.tick()
     esc = sent_to(api, CHANNELS[ESCALATION_CHANNEL])
-    assert esc[0][1] is None and esc[1] == ("<@U0TAMURA1>\n対応お願いします。\n担当確信度 0.90", "1.0")
+    assert len(esc) == 1 and esc[0][1] is None
+    assert esc[0][0].startswith("<@U0TAMURA1>\n対応お願いします。\n担当確信度 0.90\n")
     before = len(api.sent)
     conn.pipeline.add_note(item.id, "代品を本日発送")
     conn.pipeline.close(item.id, "complaint")

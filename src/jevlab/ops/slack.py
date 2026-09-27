@@ -361,7 +361,7 @@ def mention(member: StaffMember | None) -> str:
 
 
 def assign_line(item: Item, settings: Settings) -> str:
-    """スレッドに書く、担当についての一言（メンション・お願い・確信度を 1 行ずつ）。
+    """担当についての一言（メンション・お願い・確信度を 1 行ずつ）。最初は親の投稿の先頭、担当を変えたらスレッドに書く。
 
     担当が決まっていれば（仮の割り当てを含む）その人をメンションし、自動の割り当てなら担当確信度を添える。
     担当が決まっていなければ振り分け担当（当番）をメンションし、推定した担当は名前だけ書く。
@@ -552,15 +552,17 @@ class SlackConnector:
                     if post.channel == ESCALATION_CHANNEL and item is not None:
                         await self._escalation(post, item, target, settings)
                     elif item is not None and item.slack_ts is None:
-                        # 振り分けの最初の投稿を親にする（完了の返信とリアクションをここに付ける）
-                        parent = await self._parent(post, item, target, settings)
-                        if (
-                            parent.status == "routed"
-                            and not parent.slack_notified
-                            and no_reply_reason(parent, settings) is None
-                        ):
-                            # 返信の要る件は、スレッドで担当（決まっていなければ振り分け担当）をメンションする
-                            await self._send(target, assign_line(parent, settings), parent.slack_ts)
+                        # 振り分けの最初の投稿を親にする（完了の返信とリアクションをここに付ける）。
+                        # 返信の要る件は、親の投稿で担当（決まっていなければ振り分け担当）をメンションする
+                        calls = (
+                            item.status == "routed"
+                            and not item.slack_notified
+                            and no_reply_reason(item, settings) is None
+                        )
+                        parent = await self._parent(
+                            post, item, target, settings, head=assign_line(item, settings) if calls else None
+                        )
+                        if calls:
                             store.update(parent.id, lambda i: i.model_copy(update={"slack_notified": True}))
                     elif item is not None:
                         # 同じ件の 2 つ目以降の投稿（分類の修正・エスカレーションの完了など）は、リンクを付けて単独で流す
@@ -587,8 +589,12 @@ class SlackConnector:
         except ItemNotFoundError:  # 受付箱を空にした後など
             return None
 
-    async def _parent(self, post: Post, item: Item, channel: str, settings: Settings) -> Item:
+    async def _parent(
+        self, post: Post, item: Item, channel: str, settings: Settings, *, head: str | None = None
+    ) -> Item:
         """件の親の投稿（件の詳細へのリンクつき）を送り、その ts を件に残す。
+
+        head は投稿の先頭に書く担当へのメンション（通知の冒頭に出るように）。
 
         親の送信が応答なく終わった（投稿できたか分からない）ときは、やり直す前に Slack 側を探して二重に投稿しない。
         """
@@ -598,16 +604,17 @@ class SlackConnector:
             ts = await asyncio.to_thread(self._api().find_message, channel, link_marker(item.id))
         if ts is None:
             store.update(item.id, lambda i: i.model_copy(update={"slack_parent_pending": True}))
-            ts = await self._send(channel, f"{post_text(post, item)}\n{link_text(item.id, settings, post.channel)}")
+            body = f"{post_text(post, item)}\n{link_text(item.id, settings, post.channel)}"
+            ts = await self._send(channel, f"{head}\n{body}" if head else body)
         return store.update(
             item.id,
             lambda i: i.model_copy(update={"slack_channel": channel, "slack_ts": ts, "slack_parent_pending": False}),
         )
 
     async def _escalation(self, post: Post, item: Item, channel: str, settings: Settings) -> None:
-        """エスカレーションは親の投稿（画面へのリンクつき）と、担当についてのスレッドの返信に分ける。
+        """エスカレーションの親の投稿（画面へのリンクつき）を、担当へのメンションを先頭に付けて送る。
 
-        親と返信は別々に記録し、途中で失敗してやり直しても二重に書かない。
+        親とメンションの済みは別々に記録し、途中で失敗してやり直しても二重に書かない。
         """
         store = self.pipeline.store
         if item.slack_ts is not None and item.slack_notified:
@@ -615,8 +622,11 @@ class SlackConnector:
             await self._send(item.slack_channel or channel, post_text(post, item), item.slack_ts)
             return
         if item.slack_ts is None:
-            item = await self._parent(post, item, channel, settings)
-        await self._send(item.slack_channel or channel, assign_line(item, settings), item.slack_ts)
+            # 親の投稿で担当（決まっていなければ振り分け担当）をメンションする
+            item = await self._parent(post, item, channel, settings, head=assign_line(item, settings))
+        else:
+            # 親は送ったのにメンションを記録する前に止まったときは、スレッドで補う
+            await self._send(item.slack_channel or channel, assign_line(item, settings), item.slack_ts)
         store.update(item.id, lambda i: i.model_copy(update={"slack_notified": True}))
 
     async def _mark_done(self, item: Item) -> None:
