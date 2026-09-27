@@ -95,6 +95,9 @@ export function ReplyPage() {
   const { target } = useShell()
   const [params] = useSearchParams()
   const itemId = params.get('item')
+  // 件を開いていた画面に戻る。運用の画面以外（外部の URL など）には戻さない
+  const from = params.get('from')
+  const backTo = from && from.startsWith('/ops/') ? from : `/ops/inbox?id=${encodeURIComponent(itemId ?? '')}`
   const [meta, setMeta] = useState<ReplyMeta | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [inquiry, setInquiry] = useState('')
@@ -263,7 +266,7 @@ export function ReplyPage() {
         <span className="muted small">
           {itemId && (
             <>
-              <Link to={`/ops/inbox?id=${encodeURIComponent(itemId)}`}>{itemId}</Link> から ／{' '}
+              <Link to={backTo}>{itemId}</Link> から ／{' '}
             </>
           )}
           {target ? TARGET_SHORT[target] : '接続先'}・個人情報の候補は伏せて送ります

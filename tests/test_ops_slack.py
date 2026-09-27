@@ -237,11 +237,11 @@ async def test_escalation_thread_mentions_dispatcher_when_unassigned(tmp_path: P
     await conn.tick()
     item_id = escalate(conn, assign_suggestion="tamura")
     await conn.tick()
-    (_, parent), (_, reply) = api.sent
+    ((_, parent),) = api.sent
     assert f"<http://127.0.0.1:8000/ops/escalations?id={item_id}|画面で開く>" in parent
-    assert api.threads == [None, "1.0"]
-    # 推定した担当（田村）は名前だけ。呼び出すのは振り分け担当（佐藤）
-    assert "<@U0SATO001>" in reply and "推定: 田村" in reply and "U0TAMURA1" not in reply
+    assert api.threads == [None]
+    # メンションは親の投稿の先頭に書く。推定した担当（田村）は名前だけ。呼び出すのは振り分け担当（佐藤）
+    assert parent.startswith("<@U0SATO001>\n担当を決めてください。\n推定: 田村\n") and "U0TAMURA1" not in parent
     assert conn.pipeline.store.get(item_id).slack_ts == "1.0"
 
 
@@ -253,14 +253,14 @@ async def test_escalation_thread_mentions_auto_assignee_and_follows_changes(tmp_
     await conn.tick()
     item_id = escalate(conn, assignee="tamura", assigned_by="auto", assign_suggestion="tamura")
     await conn.tick()
-    assert api.sent[1][1].startswith("<@U0TAMURA1>\n対応お願いします。")
+    assert api.sent[0][1].startswith("<@U0TAMURA1>\n対応お願いします。")
     # 人が担当を変えた・外した・完了にした → 同じスレッドに書き足す
     conn.pipeline.assign(item_id, "suzuki")
     conn.pipeline.assign(item_id, "")
     conn.pipeline.assign(item_id, "sato")
     conn.pipeline.close(item_id, "complaint")
     await conn.tick()
-    follow = [t for _, t in api.sent[2:]]
+    follow = [t for _, t in api.sent[1:]]
     assert follow[:3] == ["鈴木 担当になりました", "担当を外しました", "<@U0SATO001> 担当になりました"]
     assert follow[-1] == "対応完了（担当: 佐藤）"
     assert all(ts == "1.0" for ts in api.threads[1:])
@@ -344,12 +344,14 @@ async def test_failed_reply_is_retried_without_rewriting_the_body(tmp_path: Path
     conn = make(tmp_path, api, None, outbound=True, channel_map={ESCALATION_CHANNEL: C_ESC})
     with_staff(conn)
     await conn.tick()
+    # 親は送ったのにメンションを記録する前に止まった件は、スレッドで補う。失敗してもやり直し、親は送り直さない
+    item_id = escalate(conn)
+    conn.pipeline.store.update(item_id, lambda i: i.model_copy(update={"slack_channel": C_ESC, "slack_ts": "1.0"}))
     api.fail_reply = SlackSendError("混み合い", retry_after=0.0)
-    escalate(conn)
     await conn.tick()
     await conn.tick()
     texts = [t for _, t in api.sent]
-    assert len(texts) == 2 and "担当を決めてください" in texts[1]
+    assert len(texts) == 1 and "担当を決めてください" in texts[0] and api.threads == ["1.0"]
 
 
 @pytest.mark.anyio
@@ -440,17 +442,17 @@ async def test_routed_post_links_to_item_and_close_replies_with_reaction(tmp_pat
     await conn.tick()
     item_id = route(conn)
     await conn.tick()
-    (channel, parent), (_, mention_line) = api.sent
+    ((channel, parent),) = api.sent
     # 振り分けの投稿にも件の詳細へのリンクを付け、親として記録する
     assert channel == C_COMPLAINT and f"<http://127.0.0.1:8000/ops/inbox?id={item_id}|画面で開く>" in parent
     assert conn.pipeline.store.get(item_id).slack_ts == "1.0"
-    # 返信の要る件は、スレッドで担当（決まっていなければ振り分け担当）をメンションする
-    assert "<@U0SATO001>" in mention_line and api.threads[1] == "1.0"
+    # 返信の要る件は、親の投稿の先頭で担当（決まっていなければ振り分け担当）をメンションする
+    assert parent.startswith("<@U0SATO001>\n")
     # 分類を変えずに完了 → スレッドに返信し、親に ✅ を付ける。新しい投稿は増えない
     closed = conn.pipeline.close(item_id, None)
     assert closed.status == "closed" and closed.category == "complaint"
     await conn.tick()
-    assert api.sent[2:] == [(C_COMPLAINT, "対応完了（担当: 未割り当て）")] and api.threads[2:] == ["1.0"]
+    assert api.sent[1:] == [(C_COMPLAINT, "対応完了（担当: 未割り当て）")] and api.threads[1:] == ["1.0"]
     assert api.reactions == [(C_COMPLAINT, "1.0", "white_check_mark")]
 
 
@@ -515,8 +517,8 @@ async def test_off_duty_dispatcher_is_not_called(tmp_path: Path) -> None:
     await conn.tick()
     escalate(conn)
     await conn.tick()
-    reply = api.sent[1][1]
-    assert "U0SATO001" not in reply and "振り分け担当が未設定" in reply
+    parent = api.sent[0][1]
+    assert "U0SATO001" not in parent and parent.startswith("（振り分け担当が未設定）")
 
 
 @pytest.mark.anyio
@@ -551,9 +553,9 @@ async def test_provisional_assignee_is_mentioned(tmp_path: Path) -> None:
     await conn.tick()
     escalate(conn, assignee="tamura", assigned_by="auto", assign_provisional=True, assign_confidence=0.42)
     await conn.tick()
-    reply = api.sent[1][1]
+    parent = api.sent[0][1]
     # カッコ書き（仮で割り当て など）は付けず、担当確信度を 1 行で添える
-    assert reply == "<@U0TAMURA1>\n対応お願いします。\n担当確信度 0.42"
+    assert parent.startswith("<@U0TAMURA1>\n対応お願いします。\n担当確信度 0.42\n")
 
 
 @pytest.mark.anyio
@@ -580,6 +582,8 @@ async def test_purge_deletes_own_posts_and_forgets_refs(tmp_path: Path) -> None:
     await conn.tick()
     item_id = escalate(conn)
     await conn.tick()
+    conn.pipeline.assign(item_id, "suzuki")
+    await conn.tick()
     assert len(api.sent) == 2  # 親とスレッドの返信
     conn.start_purge()
     assert conn._purge_task is not None
@@ -598,7 +602,9 @@ async def test_purge_skips_messages_it_cannot_delete(tmp_path: Path) -> None:
     conn = make(tmp_path, api, None, outbound=True, channel_map={ESCALATION_CHANNEL: C_ESC})
     with_staff(conn)
     await conn.tick()
-    escalate(conn)
+    item_id = escalate(conn)
+    await conn.tick()
+    conn.pipeline.assign(item_id, "suzuki")
     await conn.tick()
     api.undeletable = {"2.0"}
     conn.start_purge()
@@ -667,8 +673,9 @@ async def test_categories_needing_a_reply_stay_open(tmp_path: Path) -> None:
     item_id = _route_as(conn, "inquiry")
     assert conn.pipeline.store.get(item_id).status == "routed"
     await conn.tick()
-    # 投稿とスレッドのメンション。✅ は付けない
-    assert [c for c, _ in api.sent] == ["C0INQUIRY1", "C0INQUIRY1"] and api.threads[1] == "1.0" and not api.reactions
+    # 投稿の先頭でメンションする。スレッドには書かず、✅ も付けない
+    assert [c for c, _ in api.sent] == ["C0INQUIRY1"] and api.threads == [None] and not api.reactions
+    assert api.sent[0][1].splitlines()[1] == "担当を決めてください。"
 
 
 @pytest.mark.anyio
@@ -691,7 +698,7 @@ async def test_routed_item_needing_a_reply_is_assigned_and_mentioned(tmp_path: P
     # 確率が閾値に届かなくても、仮で割り当てる
     assert routed.status == "routed" and routed.assignee == "tamura" and routed.assign_provisional
     await conn.tick()
-    assert api.sent[1][1] == "<@U0TAMURA1>\n対応お願いします。\n担当確信度 0.30" and api.threads[1] == "1.0"
+    assert api.sent[0][1].startswith("<@U0TAMURA1>\n対応お願いします。\n担当確信度 0.30\n") and api.threads == [None]
     # 振り分け済みの件も、人が担当を変えられる
     assert conn.pipeline.assign(item.id, "sato").assignee == "sato"
 
@@ -752,7 +759,9 @@ async def test_purge_leaves_other_posts_of_the_same_bot(tmp_path: Path) -> None:
     conn = make(tmp_path, api, None, outbound=True, channel_map={ESCALATION_CHANNEL: C_ESC})
     with_staff(conn)
     await conn.tick()
-    escalate(conn)
+    item_id = escalate(conn)
+    await conn.tick()
+    conn.pipeline.assign(item_id, "suzuki")
     await conn.tick()
     # 同じボットで jevlab 以外の用途に投稿したもの
     api.foreign = [(C_ESC, "99.0")]
@@ -777,6 +786,8 @@ async def test_purge_failure_forgets_only_deleted_posts(tmp_path: Path) -> None:
     await conn.tick()
     item_id = escalate(conn)
     await conn.tick()
+    conn.pipeline.assign(item_id, "suzuki")
+    await conn.tick()
     conn.start_purge()
     assert conn._purge_task is not None
     await conn._purge_task
@@ -799,7 +810,8 @@ async def test_nothing_is_mirrored_while_purging(tmp_path: Path) -> None:
     assert api.sent == []
     conn.purge_status.running = False
     await conn.tick()
-    assert len(api.sent) == 2
+    # 親の投稿 1 件（メンションは親に書く）
+    assert len(api.sent) == 1
 
 
 def test_own_messages_pages_through_thread_replies() -> None:
