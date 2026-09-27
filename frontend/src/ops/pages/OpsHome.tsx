@@ -1,5 +1,5 @@
 import { useEffect, useState, type CSSProperties, type ReactNode } from 'react'
-import { Link, useLocation } from 'react-router'
+import { Link, useLocation, useNavigate } from 'react-router'
 import { errorMessage } from '../../api'
 import { pct } from '../../format'
 import { Page, useTitle } from '../../shell'
@@ -7,7 +7,8 @@ import { ops } from '../api'
 import { costText, KevQueueNote, Kpi } from '../components'
 import { ACTOR_LABELS, clockTime } from '../format'
 import { useOps } from '../state'
-import { FoldClose } from '../../components/fold'
+import { Compose } from '../Compose'
+import { AdminTabs } from '../tabs'
 
 const TARGET_NAMES = { custom: 'Kev', jev: 'Jev', mock: 'MOCK' } as const
 
@@ -68,7 +69,7 @@ function SimulatorPanel() {
       <div className="panel-head">
         <h2>受信シミュレータ</h2>
         <span className="muted small">
-          デモのメール・チャット {sim.total} 件を流す
+          用意したメール・チャット {sim.total} 件を流す
         </span>
       </div>
       <div className="row">
@@ -136,39 +137,8 @@ function SimulatorPanel() {
   )
 }
 
-const SCENARIO: { title: string; body: string; to: string; link: string }[] = [
-  { title: '受信を始める', body: '「受信を開始」を押す', to: '/ops/inbox', link: '受付箱を開く' },
-  { title: '個人情報を確認する', body: '確かめて送る', to: '/ops/pii', link: '個人情報の確認' },
-  { title: '分類の確認を捌く', body: '数字キーで確定', to: '/ops/review', link: '分類の確認' },
-  { title: 'エスカレーションに対応する', body: '担当を決めて完了', to: '/ops/escalations', link: 'エスカレーション' },
-  { title: '振り分け結果を見る', body: '投稿を見る', to: '/ops/channels', link: 'チャンネル' },
-  { title: '閾値を見直す', body: '確認結果から決める', to: '/ops/tuning', link: '閾値の調整' },
-]
-
-function Scenario() {
-  return (
-    <details className="panel scenario">
-      <summary>
-        <strong>デモの進め方</strong> <span className="muted small">（6 ステップ）</span>
-      </summary>
-      <ol>
-        {SCENARIO.map((s) => (
-          <li key={s.title}>
-            <strong>{s.title}</strong>
-            <span className="muted small"> {s.body} </span>
-            <Link className="small" to={s.to}>
-              {s.link} →
-            </Link>
-          </li>
-        ))}
-      </ol>
-      <FoldClose />
-    </details>
-  )
-}
-
 /** 運用で Kev を使う設定なのに Kev に接続できないとき、止まっている処理を知らせる。 */
-function KevDownBanner() {
+export function KevDownBanner() {
   // 数秒おきに読む概要に Kev の状態（と、Kev を使っている処理）が入るので、落ちた・戻ったがそのまま反映される
   const { overview } = useOps()
   const kev = overview?.kev
@@ -253,9 +223,12 @@ function FlowProgress({ received: r0, waiting: w0, imported }: { received: numbe
   )
 }
 
-export function OpsHome() {
-  useTitle('運用ダッシュボード')
-  const { overview, overviewError, settings } = useOps()
+/** 管理（開発側）: 処理の状況。受信シミュレータ・お客様としてメールを送る・処理フロー。 */
+export function AdminHome() {
+  useTitle('処理の状況')
+  const { overview, overviewError, settings, refresh } = useOps()
+  const navigate = useNavigate()
+  const [composing, setComposing] = useState(false)
   const f = overview?.flow
   // 件数が少ないうちは割合がぶれるので出さない
   const acc = (a: { n: number; matched: number } | undefined) => (a && a.n >= 5 ? pct(a.matched / a.n) : '-')
@@ -269,14 +242,16 @@ export function OpsHome() {
     if (hash === '#flow' && flowShown) document.getElementById('flow')?.scrollIntoView({ block: 'start' })
   }, [hash, flowShown])
   return (
-    <Page wide crumbs={[{ label: '運用' }, { label: 'ダッシュボード' }]}>
+    <Page wide crumbs={[{ label: '管理', to: '/admin' }, { label: '処理の状況' }]}>
+      <AdminTabs />
       <div className="panel-head">
-        <h1>こもれび雑貨店 サポート窓口</h1>
-        <span className="muted small">受信 → ガードレール → 仕分け → 振り分け</span>
+        <h1>処理の状況</h1>
+        <button type="button" onClick={() => setComposing(true)}>
+          ✉ お客様としてメールを送る
+        </button>
       </div>
       {overviewError && <div className="error">状態の取得に失敗: {overviewError}</div>}
       <KevDownBanner />
-      <Scenario />
       <SimulatorPanel />
 
       {f && (
@@ -316,7 +291,7 @@ export function OpsHome() {
               →
             </span>
             <div className="flow-branches">
-              <Node title="自動で振り分け" count={f.auto} to="/ops/channels" tone="ok">
+              <Node title="自動で振り分け" count={f.auto} to="/admin/channels" tone="ok">
                 チャンネルへ投稿
               </Node>
               <Node title="分類の確認" count={f.review} to="/ops/review" tone="warn">
@@ -377,6 +352,16 @@ export function OpsHome() {
             </ul>
           )}
         </section>
+      )}
+      {composing && (
+        <Compose
+          onClose={() => setComposing(false)}
+          onSent={(item) => {
+            setComposing(false)
+            refresh()
+            navigate(`/ops/inbox?id=${encodeURIComponent(item.id)}`)
+          }}
+        />
       )}
     </Page>
   )

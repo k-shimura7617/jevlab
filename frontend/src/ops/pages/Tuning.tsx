@@ -5,8 +5,9 @@ import { Hint } from '../../components/hint'
 import { pct } from '../../format'
 import { Page, useTitle } from '../../shell'
 import { ops, type Curve, type PiiMatrix, type Settings } from '../api'
-import { CONFIDENCE_NOTE } from '../format'
+import { CONFIDENCE_NOTE, staffName } from '../format'
 import { useOps, usePolling } from '../state'
+import { AdminTabs } from '../tabs'
 
 const W = 520
 const H = 220
@@ -149,7 +150,7 @@ function MissSection({ labels }: { labels: Record<string, string> }) {
           )}
           {n > 0 && m.suggested !== null && (
             <p className="small" data-testid="miss-suggestion">
-              <Link to="/ops/settings#guard">取りこぼしを疑う確率</Link> {m.threshold.toFixed(2)}: 見逃し {n} 件中 {m.caught_now} 件を確認に回せた。
+              <Link to="/admin/settings#guard">取りこぼしを疑う確率</Link> {m.threshold.toFixed(2)}: 見逃し {n} 件中 {m.caught_now} 件を確認に回せた。
               {m.suggested < m.threshold ? (
                 <>
                   {' '}
@@ -167,21 +168,64 @@ function MissSection({ labels }: { labels: Record<string, string> }) {
   )
 }
 
+/** 分類の混同行列（行: Jev の予測、列: 人が確かめた分類）。 */
+function ConfusionTable({ confusion, labels }: { confusion: Record<string, Record<string, number>>; labels: Record<string, string> }) {
+  const keys = Object.keys(labels)
+  if (!Object.keys(confusion).length) return <p className="muted small">人が確かめた件がまだありません。</p>
+  return (
+    <div className="scroll">
+      <table className="confusion" data-testid="confusion">
+        <thead>
+          <tr>
+            <th className="axis">Jev ＼ 人</th>
+            {keys.map((k) => (
+              <th key={k}>{labels[k]}</th>
+            ))}
+            <th>正解率</th>
+          </tr>
+        </thead>
+        <tbody>
+          {keys.map((p) => {
+            const row = confusion[p] ?? {}
+            const n = Object.values(row).reduce((s, v) => s + v, 0)
+            return (
+              <tr key={p}>
+                <th>{labels[p]}</th>
+                {keys.map((t) => {
+                  const v = row[t] ?? 0
+                  const ok = p === t
+                  return (
+                    <td key={t} className="cell" style={v ? { background: `color-mix(in srgb, var(--${ok ? 'ok' : 'ng'}) 18%, transparent)` } : undefined}>
+                      {v || <span className="muted">·</span>}
+                    </td>
+                  )
+                })}
+                <td className="num">{n ? pct((row[p] ?? 0) / n, 0) : '-'}</td>
+              </tr>
+            )
+          })}
+        </tbody>
+      </table>
+    </div>
+  )
+}
+
+// 正解は人が確かめた件。目標の誤り率は 5%（細かい条件は選ばせない）
+const TARGET_ERROR = 0.05
+
+/** 成績: 分類と担当の当たり具合を見て、ボタン 1 つで閾値を合わせる。 */
 export function Tuning() {
-  useTitle('閾値の調整')
+  useTitle('成績')
   const { settings, meta, saveSettings } = useOps()
-  const [source, setSource] = useState<'human' | 'expected'>('human')
-  const [target, setTarget] = useState(0.05)
-  // 分類の定義（説明）を変える前の件は、既定では数えない
-  const [allVersions, setAllVersions] = useState(false)
   // 変更した直後のカード（その中に「変更しました」を出す）と、失敗したカードのエラー
   const [done, setDone] = useState<string | null>(null)
   const [failed, setFailed] = useState<{ key: string; message: string } | null>(null)
   const [busy, setBusy] = useState<string | null>(null)
-  const report = usePolling(() => ops.tuning(source, target, allVersions), 5000)
-  const { reload } = report
-  useEffect(() => reload(), [source, target, allVersions, reload])
-  const r = report.data && report.data.source === source && report.data.target_error === target ? report.data : null
+  const report = usePolling(() => ops.tuning('human', TARGET_ERROR, false), 5000)
+  const stats = usePolling(ops.assignment, 5000)
+  const st = stats.data
+  const staff = settings?.staff ?? []
+  const r = report.data
   const current = settings?.classify.auto_threshold ?? 0.9
   const review = settings?.classify.review_threshold ?? 0.5
   const change = (key: string, update: (c: Settings['classify']) => Settings['classify']) => {
@@ -194,17 +238,17 @@ export function Tuning() {
       .catch((e: unknown) => setFailed({ key, message: errorMessage(e) }))
       .finally(() => setBusy(null))
   }
-  // 提案があるカードに付ける「いま → 提案 に変更」。変更すると、いまの値（縦線）もその場で変わる
+  // 提案があるカードに付ける「いま → おすすめ に合わせる」。変更すると、いまの値（縦線）もその場で変わる
   const changeButton = (key: string, now: number, rec: number | null, update: Parameters<typeof change>[1], blocked?: string) =>
     rec === null ? null : (
       <div className="row">
         {rec.toFixed(2) === now.toFixed(2) ? (
-          <span className="muted small">提案どおり</span>
+          <span className="muted small">おすすめどおり</span>
         ) : blocked ? (
           <span className="error small">{blocked}</span>
         ) : (
           <button type="button" disabled={busy !== null} onClick={() => change(key, update)} data-testid={`apply-${key}`}>
-            {now.toFixed(2)} → {rec.toFixed(2)} に変更
+            おすすめに合わせる（{now.toFixed(2)} → {rec.toFixed(2)}）
           </button>
         )}
         {done === key && <span className="ok small">変更しました</span>}
@@ -212,95 +256,119 @@ export function Tuning() {
       </div>
     )
   return (
-    <Page wide crumbs={[{ label: '運用', to: '/ops' }, { label: '閾値の調整' }]}>
+    <Page wide crumbs={[{ label: '運用', to: '/ops' }, { label: '成績' }]}>
       <div className="panel-head">
-        <h1>閾値の調整</h1>
-        <span className="muted small">誤り率の目標を満たす閾値を提案</span>
+        <h1>成績</h1>
+        <span className="muted small">人が確かめた件を正解にしています。</span>
       </div>
       <section className="panel">
-        <div className="row">
-          <span className="muted small">正解に使う件</span>
-          <div className="seg" role="group" aria-label="正解に使う件">
-            <button type="button" className="seg-btn" aria-pressed={source === 'human'} onClick={() => setSource('human')}>
-              人が確認した件
-            </button>
-            <button type="button" className="seg-btn" aria-pressed={source === 'expected'} onClick={() => setSource('expected')}>
-              想定ラベル・過去の分類
-            </button>
-          </div>
-          <label className="muted small" htmlFor="target-error">
-            目標の誤り率
-          </label>
-          <select id="target-error" value={target} onChange={(e) => setTarget(Number(e.target.value))}>
-            {[0.01, 0.02, 0.05, 0.1, 0.2].map((v) => (
-              <option key={v} value={v}>
-                {pct(v, 0)} 以下
-              </option>
-            ))}
-          </select>
-          <label className="small">
-            <input type="checkbox" checked={allVersions} onChange={(e) => setAllVersions(e.target.checked)} /> 定義を変える前の件も含める
-          </label>
-          <span className="muted small">いまの共通の閾値 {current.toFixed(2)}</span>
-        </div>
-        <p className="note">
-          {source === 'human' ? (
-            <>
-              人が確定・確認した件が正解
-              <Hint text="確認待ちで確定・抜き取り確認・エスカレーションで完了した件。自動で振り分けて誰も見ていない件は含めない" />
-            </>
-          ) : (
-            'デモの想定ラベル・取り込んだ過去の分類が正解'
-          )}
-        </p>
+        <h2>分類</h2>
         {report.error && <div className="error small">{report.error}</div>}
         {!r && <p className="muted">集計中…</p>}
-        {r && (
+        {r && <ConfusionTable confusion={r.confusion} labels={meta?.categories ?? {}} />}
+      </section>
+      {r && (
+        <section className="panel">
+          <h2>自動で振り分ける確信度</h2>
+          <p className="muted small">
+            誤りが {pct(TARGET_ERROR, 0)} 以下になる、いちばん低い値をおすすめします。
+          </p>
+          <div className="legend small">
+            <span className="lg auto">自動で振り分ける割合</span>
+            <span className="lg err">自動分の誤り率</span>
+            <span className="lg current">いまの値</span>
+            <span className="lg rec">おすすめ</span>
+            <Hint text={CONFIDENCE_NOTE} />
+          </div>
+          <div className="curves">
+            <div className="curve-card" data-testid="curve-overall">
+              <h3>全体（{r.overall.n} 件）</h3>
+              <CurveChart curve={r.overall} targetError={TARGET_ERROR} current={current} />
+              <p className="small">{r.overall.note}</p>
+              {changeButton(
+                'overall',
+                current,
+                r.overall.recommended,
+                (c) => ({ ...c, auto_threshold: r.overall.recommended ?? c.auto_threshold }),
+                r.overall.recommended !== null && r.overall.recommended < review
+                  ? `確認待ちの閾値 ${review.toFixed(2)} を下回るため変更できません`
+                  : undefined,
+              )}
+            </div>
+            {r.by_label.map((c) => {
+              const label = c.label ?? ''
+              const now = settings?.classify.label_thresholds[label] ?? current
+              return (
+                <div key={label} className="curve-card" data-testid={`curve-${label}`}>
+                  <h3>
+                    {meta?.category_labels[label] ?? label}（{c.n} 件）
+                  </h3>
+                  <CurveChart curve={c} targetError={TARGET_ERROR} current={now} />
+                  <p className="small">{c.note}</p>
+                  {changeButton(label, now, c.recommended, (cl) => ({
+                    ...cl,
+                    label_thresholds: { ...cl.label_thresholds, [label]: c.recommended ?? now },
+                  }))}
+                </div>
+              )
+            })}
+          </div>
+        </section>
+      )}
+      <section className="panel" data-testid="assign-stats">
+        <h2>担当の推定</h2>
+        {stats.error && <div className="error small">{stats.error}</div>}
+        {!st ? (
+          <p className="muted">集計中…</p>
+        ) : st.with_suggestion === 0 ? (
+          <p className="muted">まだ完了した件がありません。</p>
+        ) : (
           <>
-            <div className="legend small">
-              <span className="lg auto">自動で振り分ける割合</span>
-              <span className="lg err">自動分の誤り率</span>
-              <span className="lg target">目標の誤り率</span>
-              <span className="lg current">いまの閾値</span>
-              <span className="lg rec">提案</span>
-              <Hint text={CONFIDENCE_NOTE} />
-            </div>
-            <div className="curves">
-              <div className="curve-card" data-testid="curve-overall">
-                <h3>全体（{r.overall.n} 件）</h3>
-                <CurveChart curve={r.overall} targetError={target} current={current} />
-                <p className="small">{r.overall.note}</p>
-                {changeButton(
-                  'overall',
-                  current,
-                  r.overall.recommended,
-                  (c) => ({ ...c, auto_threshold: r.overall.recommended ?? c.auto_threshold }),
-                  r.overall.recommended !== null && r.overall.recommended < review
-                    ? `確認待ちの閾値 ${review.toFixed(2)} を下回るため変更できません`
-                    : undefined,
-                )}
+            <div className="kpis">
+              <div className="kpi">
+                <div className="muted small">推定と実際の担当の一致</div>
+                <div className="kpi-value">{pct(st.matched / st.with_suggestion, 0)}</div>
+                <div className="kpi-sub">
+                  人が担当を決めて完了した {st.with_suggestion} 件のうち {st.matched} 件
+                  {st.with_suggestion < 10 && '（件数が少ないため参考値）'}
+                </div>
               </div>
-              {r.by_label.map((c) => {
-                const label = c.label ?? ''
-                const now = settings?.classify.label_thresholds[label] ?? current
-                return (
-                  <div key={label} className="curve-card" data-testid={`curve-${label}`}>
-                    <h3>
-                      {meta?.category_labels[label] ?? label}（{c.n} 件）
-                    </h3>
-                    <CurveChart curve={c} targetError={target} current={now} />
-                    <p className="small">{c.note}</p>
-                    {changeButton(label, now, c.recommended, (cl) => ({
-                      ...cl,
-                      label_thresholds: { ...cl.label_thresholds, [label]: c.recommended ?? now },
-                    }))}
-                  </div>
-                )
-              })}
+              <div className="kpi">
+                <div className="muted small">自動で割り当てた件</div>
+                <div className="kpi-value">{st.auto_assigned}</div>
+                <div className="kpi-sub">うち人が変えた {st.auto_changed} 件</div>
+              </div>
             </div>
+            {st.pairs.length > 0 && (
+              <>
+                <h3>取り違えの多い組</h3>
+                <p className="muted small">推定 → 実際。担当範囲を見直す手がかりです。</p>
+                <ul className="pairs">
+                  {st.pairs.map((p) => (
+                    <li key={`${p.suggested}-${p.actual}`}>
+                      {p.suggested ? staffName(staff, p.suggested) : '推定なし'} → <strong>{staffName(staff, p.actual)}</strong>：{p.count} 件
+                    </li>
+                  ))}
+                </ul>
+              </>
+            )}
           </>
         )}
       </section>
+    </Page>
+  )
+}
+
+/** 管理（開発側）: 個人情報の判定の成績と検知漏れ。 */
+export function AdminPii() {
+  useTitle('個人情報の判定')
+  const { meta } = useOps()
+  return (
+    <Page wide crumbs={[{ label: '管理', to: '/admin' }, { label: '個人情報の判定' }]}>
+      <AdminTabs />
+      <div className="panel-head">
+        <h1>個人情報の判定</h1>
+      </div>
       <PiiEvalSection />
       <MissSection labels={meta?.pii_types ?? {}} />
     </Page>

@@ -1,6 +1,6 @@
 """自動振り分けの閾値の調整。
 
-正解が分かっている件（人が確認・修正した件、抜き取りの結果、デモの想定ラベル）から、
+正解が分かっている件（人が確認・修正した件、デモの想定ラベル）から、
 閾値を動かしたときの「自動で振り分ける割合」と「自動で振り分けた分の誤り率」を出し、
 目標の誤り率を満たす一番低い閾値を提案する。反映は人が決める（自動では変えない）。
 """
@@ -54,6 +54,8 @@ class TuningReport(BaseModel):
     n: int
     overall: Curve
     by_label: list[Curve]
+    # 混同行列（予測した分類 → 正解の分類 → 件数）
+    confusion: dict[str, dict[str, int]] = {}
 
 
 def _model_prediction(item: Item) -> str | None:
@@ -77,7 +79,8 @@ def labeled_items(items: Iterable[Item], source: TruthSource, version: str | Non
             # 過去の問い合わせは人が確認していない（分類は取り込んだ過去の分類として expected にある）
             truth = None
         else:
-            # 人が確認した件だけを正解として使う（自動で振り分けて誰も見ていない件は含めない）
+            # 人が確認した件だけを正解として使う（自動で振り分けて誰も見ていない件は含めない）。
+            # audit_result は、抜き取り確認を外す前に記録した件
             human_checked = (
                 (item.status == "closed" and not item.auto_closed)
                 or item.audit_result is not None
@@ -142,4 +145,14 @@ def report(
         n=len(rows),
         overall=curve(rows, target_error, None),
         by_label=by_label,
+        confusion=confusion(rows),
     )
+
+
+def confusion(rows: Iterable[Labeled]) -> dict[str, dict[str, int]]:
+    """予測した分類ごとに、正解の分類の件数を数える。"""
+    out: dict[str, dict[str, int]] = {}
+    for r in rows:
+        row = out.setdefault(r.predicted, {})
+        row[r.truth] = row.get(r.truth, 0) + 1
+    return out

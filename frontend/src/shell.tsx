@@ -3,6 +3,7 @@ import { Link, NavLink, useLocation } from 'react-router'
 import { api, errorMessage, type AppInfo, type Mode, type Status, type TargetStatus } from './api'
 import { MODE_LABELS, SWITCH_ORDER, TARGET_SHORT, usd } from './format'
 import { useOpsOptional } from './ops/state'
+import { QUEUE_PATHS, SETTINGS_PATHS } from './ops/tabs'
 import { useActiveApps } from './runStore'
 
 const TARGET_KEY = 'jevlab.target'
@@ -299,14 +300,9 @@ function Sidebar() {
   const badge = (n: number | undefined, tone: 'warn' | 'ng' = 'warn') =>
     n ? <span className={`nav-badge ${tone}`}>{n}</span> : null
   const waiting = (counts?.pii_review ?? 0) + (counts?.review ?? 0) + (counts?.escalated ?? 0)
-  const settings = ops?.settings
-  const who = (label: string) => <span className="nav-who">{label}</span>
-  const guardWho = settings && (!settings.guard.enabled ? '無効' : settings.guard.use_model ? TARGET_SHORT[settings.guard.target] : '規則のみ')
-  const classifyWho =
-    settings &&
-    (settings.kev_first.enabled && settings.classify.target !== 'custom'
-      ? `Kev→${TARGET_SHORT[settings.classify.target]}`
-      : TARGET_SHORT[settings.classify.target])
+  // 対応待ち・設定は、タブで切り替える画面のどれを開いていても選択中にする
+  const inQueue = (QUEUE_PATHS as readonly string[]).includes(pathname)
+  const inSettings = (SETTINGS_PATHS as readonly string[]).includes(pathname)
   return (
     <aside className="sidebar">
       <Link className="brand" to="/ops">
@@ -325,40 +321,18 @@ function Sidebar() {
         badge={badge(waiting)}
         extra={ops?.overview?.simulator.playing && <span className="run-dot" title="受信中" aria-label="受信中" />}
       >
-        <div className="nav-label">受付と人の対応</div>
         <NavLink to="/ops/inbox" className={navCls}>
           受付箱
         </NavLink>
-        <NavLink to="/ops/pii" className={navCls}>
-          個人情報の確認{guardWho && who(guardWho)}
-          {badge(counts?.pii_review)}
-        </NavLink>
-        <NavLink to="/ops/review" className={navCls}>
-          分類の確認{classifyWho && who(classifyWho)}
-          {badge(counts?.review)}
-        </NavLink>
-        <NavLink to="/ops/escalations" className={navCls}>
-          エスカレーション{badge(counts?.escalated, 'ng')}
-        </NavLink>
-        <NavLink to="/ops/channels" className={navCls}>
-          チャンネル
-        </NavLink>
-        <div className="nav-label">管理</div>
-        <NavLink to="/ops/staff" className={navCls}>
-          担当者
-        </NavLink>
-        <NavLink to="/ops/connectors" className={navCls}>
-          コネクタ
-        </NavLink>
+        <Link to="/ops/waiting" className={inQueue ? 'active' : undefined}>
+          対応待ち{badge(waiting)}
+        </Link>
         <NavLink to="/ops/tuning" className={navCls}>
-          閾値の調整
+          成績
         </NavLink>
-        <NavLink to="/ops/settings" className={navCls}>
+        <Link to="/ops/settings" className={inSettings ? 'active' : undefined}>
           設定
-        </NavLink>
-        <NavLink to="/ops/audit" className={navCls}>
-          監査ログ
-        </NavLink>
+        </Link>
       </NavGroup>
       <NavGroup
         id="eval"

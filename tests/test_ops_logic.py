@@ -306,3 +306,15 @@ def test_reopen_returns_an_auto_closed_item_to_routed(tmp_path: Path) -> None:
         assert "自動で完了" in str(e)
     else:
         raise AssertionError("人が完了にした件を取り消せてしまった")
+
+
+def test_confusion_counts_predicted_against_truth() -> None:
+    from jevlab.ops.tuning import Labeled, confusion
+
+    rows = [
+        Labeled(id="1", predicted="inquiry", truth="inquiry", confidence=0.9),
+        Labeled(id="2", predicted="inquiry", truth="complaint", confidence=0.9),
+        Labeled(id="3", predicted="inquiry", truth="inquiry", confidence=0.8),
+        Labeled(id="4", predicted="thanks", truth="thanks", confidence=0.99),
+    ]
+    assert confusion(rows) == {"inquiry": {"inquiry": 2, "complaint": 1}, "thanks": {"thanks": 1}}

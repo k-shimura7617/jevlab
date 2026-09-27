@@ -36,14 +36,6 @@ input[type="text"], input[type="search"], input:not([type]), .search { font: inh
 .cat-tag .by { font-weight: 600; color: var(--muted); font-size: 10px; border-left: 1px solid var(--line); padding-left: 4px; }
 .pii-flag { font-size: 11px; padding: 0 6px; border-radius: 4px; background: var(--warn-soft); color: var(--warn); font-weight: 700; white-space: nowrap; }
 .audit-flag { font-size: 11px; padding: 0 6px; border-radius: 4px; background: var(--accent-soft); color: var(--accent); font-weight: 700; }
-.prio { display: inline-flex; align-items: center; gap: 4px; font-size: 11px; font-weight: 700; white-space: nowrap; }
-.prio-bar { display: inline-block; width: 36px; height: 5px; border-radius: 999px; background: var(--bg); overflow: hidden; border: 1px solid var(--line); }
-.prio-bar > span { display: block; height: 100%; }
-.prio-high { color: var(--ng); } .prio-high .prio-bar > span { background: var(--ng); }
-.prio-mid { color: var(--warn); } .prio-mid .prio-bar > span { background: var(--warn); }
-.prio-low { color: var(--muted); } .prio-low .prio-bar > span { background: var(--muted); }
-.sla { font-size: 11px; color: var(--muted); white-space: nowrap; }
-.sla.late { color: var(--ng); font-weight: 700; }
 .assignee { font-size: 11px; color: var(--muted); white-space: nowrap; }
 
 /* ダッシュボード */
@@ -95,7 +87,7 @@ a.flow-node:hover { border-color: var(--tone, var(--accent)); }
 .list-pane h2 .n, .tab .n { font-size: 11px; font-weight: 700; color: var(--muted); margin-left: 4px; }
 .tabs { display: flex; flex-wrap: wrap; gap: 2px; border-bottom: 1px solid var(--line); margin-bottom: 6px; }
 .tab { background: none; color: var(--muted); border-radius: 0; padding: 6px 10px; border-bottom: 2px solid transparent; font-size: 13px; }
-.tab[aria-selected="true"] { color: var(--accent); border-bottom-color: var(--accent); font-weight: 700; }
+.tab[aria-selected="true"], .tab[aria-current="page"] { color: var(--accent); border-bottom-color: var(--accent); font-weight: 700; }
 .row-button { display: block; width: 100%; padding: 0; background: none; color: inherit; border-radius: 0; text-align: left; }
 .item-row { display: grid; grid-template-columns: 22px minmax(0, 9em) minmax(0, 1fr) auto; grid-template-areas: "ch who what when" "ch tags tags tags"; gap: 2px 8px; padding: 8px 10px; border-bottom: 1px solid var(--line); color: var(--text); text-decoration: none; align-items: baseline; }
 .item-row:hover { background: var(--bg); }
@@ -162,32 +154,16 @@ button.pii-mark { cursor: pointer; }
 .sticky-actions { position: sticky; bottom: 0; background: var(--panel); padding: 8px 0; border-top: 1px solid var(--line); }
 
 /* 重み */
-.weights-box { margin: 4px 0 8px; }
-.weights { display: grid; gap: 2px; margin-top: 6px; }
-.weight { display: grid; grid-template-columns: 7em minmax(0, 1fr) 2.5em; gap: 8px; align-items: center; font-size: 12px; }
-.weight .num, .threshold .num { text-align: right; font-variant-numeric: tabular-nums; }
 .handling { border: 1px solid var(--line); border-radius: 8px; padding: 8px 12px 4px; margin-bottom: 12px; background: var(--bg); }
 .handling h3 { margin-top: 4px; }
 .handling input { flex: 1; }
 
 /* 疑似 Slack */
-.slack { display: grid; grid-template-columns: 220px minmax(0, 1fr); border: 1px solid var(--line); border-radius: 10px; overflow: hidden; height: calc(100vh - 150px); min-height: 480px; margin-top: 12px; }
 @media (max-width: 760px) {
   .slack { grid-template-columns: 1fr; height: auto; }
   .slack-side { max-height: 180px; }
 }
-.slack-side { background: #3f0e40; color: #e7d9e8; padding: 10px 6px; overflow-y: auto; }
-.slack-side .ws { font-weight: 800; color: #fff; padding: 4px 10px 10px; border-bottom: 1px solid rgba(255, 255, 255, .15); margin-bottom: 8px; }
-.slack-section { font-size: 11px; opacity: .7; padding: 8px 10px 2px; }
-.slack-side button { display: flex; justify-content: space-between; width: 100%; background: none; color: inherit; text-align: left; padding: 4px 10px; border-radius: 6px; font-size: 14px; }
-.slack-side button:hover { background: rgba(255, 255, 255, .08); }
-.slack-side button.active { background: #1164a3; color: #fff; }
-.slack-side .n { font-size: 11px; opacity: .75; }
-.slack-main { display: flex; flex-direction: column; min-width: 0; min-height: 0; background: var(--panel); }
-.slack-head { padding: 10px 16px; border-bottom: 1px solid var(--line); display: flex; gap: 12px; align-items: baseline; flex-wrap: wrap; }
 /* 投稿の一覧は枠の中でスクロールさせる（最新の投稿が枠の外に切れないように） */
-.slack-log { flex: 1; min-height: 0; overflow-y: auto; padding: 8px 16px; }
-.slack-log .load-more { display: block; margin: 4px auto 8px; }
 /* 狭い画面では枠の高さが決まらないので、一覧の高さを決めて中でスクロールさせる（上の flex: 1 より後に書く） */
 @media (max-width: 760px) { .slack-log { flex: none; height: 60vh; } }
 .msg { display: grid; grid-template-columns: 36px minmax(0, 1fr); gap: 10px; padding: 8px 0; animation: land .4s ease-out; }
@@ -251,13 +227,8 @@ tr.off td { color: var(--muted); }
 .lg.target::before { border-top: 1px dashed var(--ng); height: 0; }
 .lg.current::before { border-top: 2px dotted var(--muted); height: 0; }
 .lg.rec::before { background: var(--ok); }
-.scenario summary { cursor: pointer; }
-.scenario ol { margin: 8px 0 0; padding-left: 22px; display: grid; gap: 4px; font-size: 13px; }
 .item-panel.stale { opacity: .45; pointer-events: none; transition: opacity .15s; }
 .nav-error { margin: 2px 10px 6px; padding: 4px 8px; border-radius: 6px; background: var(--ng); color: #fff; font-size: 11px; font-weight: 700; }
-.sla-ok { color: var(--muted); }
-.sla-soon { color: var(--warn); font-weight: 700; }
-.sla-late { color: var(--ng); font-weight: 700; }
 .toast-area { position: fixed; bottom: 20px; right: 24px; z-index: 30; }
 .toast { background: var(--text); color: var(--panel); padding: 8px 14px; border-radius: 8px; font-size: 13px; box-shadow: 0 4px 16px rgba(0, 0, 0, .2); animation: slide .2s ease-out; }
 /* 狭い画面ではサイドバーが横並びになるため、項目名を省略しない */
@@ -351,10 +322,6 @@ tr.off td { color: var(--muted); }
   .pii-preview-box { height: 120px; }
 }
 /* Slack の状態 */
-.slack-status { display: flex; flex-wrap: wrap; gap: 6px 18px; margin: 6px 0; font-size: 13px; }
-.slack-on { color: var(--ok); }
-.slack-error { color: var(--ng); }
-.slack-unconfigured, .slack-off { color: var(--muted); }
 .form-grid .contents { display: contents; }
 /* 候補の表は高さの上限だけ決めて中でスクロールさせる（チェックの切り替えでは高さが変わらない） */
 .pii-editor .pii-table { max-height: 170px; overflow: auto; }
@@ -405,9 +372,6 @@ tr.off td { color: var(--muted); }
   .category-table td:nth-child(1) input, .category-table td:nth-child(3) input { width: auto; flex: 1; min-width: 0; }
   .category-table td:nth-child(2) textarea { flex: 1; min-width: 0; }
 }
-.slack-settings > summary { cursor: pointer; padding: 8px 0; font-size: 14px; font-weight: 600; }
-.slack-purge { margin-top: 24px; padding-top: 12px; border-top: 1px solid var(--line); }
-.slack-purge h3 { margin: 0 0 8px; }
 #flow { scroll-margin-top: 64px; }
 /* 処理フローの進み具合は、シミュレータより長いバーにする */
 .flow-progress { margin: 0 0 8px; }
@@ -415,3 +379,15 @@ tr.off td { color: var(--muted); }
 /* 折りたたみの下の「閉じる」 */
 .fold-close { display: flex; justify-content: flex-end; margin-top: 8px; }
 .flow-progress .sim-progress > span { transition: width .1s linear; }
+
+/* 1 つのメニューの下の画面を切り替えるタブ（対応待ち・設定・管理） */
+.page-tabs { margin-bottom: 10px; }
+.page-tabs .tab { text-decoration: none; }
+.page-tabs .tab .n { margin-left: 4px; font-size: 11px; color: var(--muted); }
+
+/* 運用の入口: 残りの件数 */
+.home h1 { margin: 0 0 10px; }
+.home-rows { list-style: none; padding: 0; margin: 0 0 12px; display: grid; gap: 6px; max-width: 420px; }
+.home-rows a { display: flex; justify-content: space-between; padding: 10px 14px; border: 1px solid var(--line); border-radius: 8px; text-decoration: none; color: inherit; }
+.home-rows a:hover { border-color: var(--accent); }
+.home-rows strong { font-variant-numeric: tabular-nums; }

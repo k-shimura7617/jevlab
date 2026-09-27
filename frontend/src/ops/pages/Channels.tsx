@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react'
 import { Link, useSearchParams } from 'react-router'
 import { errorMessage } from '../../api'
 import { Page, useTitle } from '../../shell'
+import { AdminTabs } from '../tabs'
 import { ops, type Post } from '../api'
 import { Empty } from '../components'
 import { clockTime } from '../format'
@@ -120,9 +121,10 @@ export function Channels() {
   // 取った件数が上限に届いていれば、もっと古い投稿がある
   const more = all.length >= limit
   return (
-    <Page wide crumbs={[{ label: '運用', to: '/ops' }, { label: 'チャンネル（疑似 Slack）' }]}>
+    <Page wide crumbs={[{ label: '管理', to: '/admin' }, { label: '疑似 Slack' }]}>
+      <AdminTabs />
       <div className="panel-head">
-        <h1>チャンネル（疑似 Slack）</h1>
+        <h1>疑似 Slack</h1>
         <span className="muted small">振り分けの投稿と、チャットからの受信。</span>
       </div>
       <div className="slack">

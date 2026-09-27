@@ -25,7 +25,8 @@ def static_dir(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> Path:
 
 def test_endpoints_in_mock_mode(mock_env: Path, static_dir: Path) -> None:
     with TestClient(app) as client:
-        for path in ("/", "/eval", "/eval/apps/triage", "/eval/apps/triage/run", "/apps/triage", "/apps/triage/run"):
+        paths = ("/", "/eval", "/eval/apps/triage", "/eval/apps/triage/run", "/apps/triage", "/apps/triage/run")
+        for path in (*paths, "/ops/waiting", "/admin", "/admin/settings"):
             res = client.get(path)
             assert res.status_code == 200
             assert res.text == SPA_HTML

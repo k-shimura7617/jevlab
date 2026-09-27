@@ -5,6 +5,7 @@ import { Page, targetStatus, useShell, useTitle } from '../../shell'
 import type { CategoryDef, PiiAction, PiiType, Settings } from '../api'
 import { useAutoSave } from '../autosave'
 import { SaveState } from '../components'
+import { AdminTabs, SettingsTabs } from '../tabs'
 import { ACTION_LABELS, ACTION_NOTES } from '../format'
 import { useOps } from '../state'
 
@@ -15,22 +16,22 @@ const TARGET_NAMES: Record<Mode, string> = { custom: 'Kev（ローカル・閉�
 const PII_ORDER: PiiType[] = ['person_name', 'phone', 'email', 'sns_account', 'postal_code', 'address', 'birthday', 'card', 'bank_account']
 const ACTIONS: PiiAction[] = ['allow', 'mask', 'block']
 
-function Section({ id, title, desc, children }: { id: string; title: string; desc: string; children: ReactNode }) {
+function Section({ id, title, desc, children }: { id: string; title: string; desc?: string; children: ReactNode }) {
   return (
     <section className="panel settings-section" id={id}>
       <h2>{title}</h2>
-      <p className="muted small">{desc}</p>
+      {desc && <p className="muted small">{desc}</p>}
       {children}
     </section>
   )
 }
 
 // 閾値の目盛りは 0.05 刻み（細かすぎても差が読めないため）。割合など閾値でないものは step で変える
-function Threshold({ label, value, onChange, note, step = 0.05 }: { label: string; value: number; onChange: (v: number) => void; note?: string; step?: number }) {
+function Threshold({ label, value, onChange, note, step = 0.05, min = 0 }: { label: string; value: number; onChange: (v: number) => void; note?: string; step?: number; min?: number }) {
   return (
     <label className="threshold">
       <span>{label}</span>
-      <input type="range" min={0} max={1} step={step} value={value} onChange={(e) => onChange(Number(e.target.value))} aria-label={label} />
+      <input type="range" min={min} max={1} step={step} value={value} onChange={(e) => onChange(Number(e.target.value))} aria-label={label} />
       <span className="num">{value.toFixed(2)}</span>
       {note && <span className="muted small">{note}</span>}
     </label>
@@ -64,10 +65,17 @@ function TargetSelect<T extends Mode>({
   )
 }
 
-// この画面で編集する項目（ほかの画面の項目は、保存のときに最新の値を使う）
-const KEYS = ['categories', 'fallback_category', 'guard', 'classify', 'kev_first'] as const
-const settingsChanged = (d: Settings, s: Settings) => KEYS.some((k) => JSON.stringify(d[k]) !== JSON.stringify(s[k]))
-const mergeSettings = (latest: Settings, d: Settings): Settings => ({ ...latest, ...Object.fromEntries(KEYS.map((k) => [k, d[k]])) })
+type Key = keyof Settings
+
+/** 画面ごとに編集する項目を決める（ほかの画面の項目は、保存のときに最新の値を使う）。 */
+function keysOf(keys: readonly Key[]) {
+  return {
+    changed: (d: Settings, s: Settings) => keys.some((k) => JSON.stringify(d[k]) !== JSON.stringify(s[k])),
+    merge: (latest: Settings, d: Settings): Settings => ({ ...latest, ...Object.fromEntries(keys.map((k) => [k, d[k]])) }),
+  }
+}
+const USER = keysOf(['categories', 'fallback_category', 'guard', 'classify'])
+const ADMIN = keysOf(['guard', 'classify', 'kev_first', 'assign'])
 
 const MAX_ACTIVE = 9
 
@@ -107,15 +115,15 @@ function categoriesInvalid(d: Settings): string | null {
         : null
 }
 
-const settingsInvalid = (d: Settings): string | null =>
-  categoriesInvalid(d) ?? (d.classify.review_threshold > d.classify.auto_threshold ? '確認待ちの閾値が自動の閾値を超えています' : null)
+const thresholdInvalid = (d: Settings): string | null =>
+  d.classify.review_threshold > d.classify.auto_threshold ? '確認待ちの閾値が自動の閾値を超えています' : null
+const settingsInvalid = (d: Settings): string | null => categoriesInvalid(d) ?? thresholdInvalid(d)
 
 export function OpsSettings() {
-  useTitle('運用の設定')
+  useTitle('設定')
   const { meta, settingsError, overview } = useOps()
-  const { status } = useShell()
   const used = new Set(overview?.used_categories ?? [])
-  const auto = useAutoSave(settingsChanged, mergeSettings, settingsInvalid)
+  const auto = useAutoSave(USER.changed, USER.merge, settingsInvalid)
   const { draft, set } = auto
   if (!draft) return <Page crumbs={[{ label: '運用', to: '/ops' }, { label: '設定' }]}>{settingsError ?? '読み込み中…'}</Page>
   const g = draft.guard
@@ -123,159 +131,16 @@ export function OpsSettings() {
   const catError = categoriesInvalid(draft)
   const setCat = (key: string, patch: Partial<CategoryDef>) =>
     set((s) => withFallback({ ...s, categories: s.categories.map((x) => (x.key === key ? { ...x, ...patch } : x)) }))
-  const labels: Record<string, string> = meta?.pii_types ?? {}
-  const warn = (t: Mode) => {
-    const ts = targetStatus(status, t)
-    return ts && !ts.available ? <div className="warn-box small">{ts.reason}</div> : null
-  }
   return (
     <Page crumbs={[{ label: '運用', to: '/ops' }, { label: '設定' }]}>
+      <SettingsTabs />
       <div {...auto.handlers}>
       <div className="panel-head">
-        <h1>運用の設定</h1>
+        <h1>分類</h1>
         <SaveState status={auto.status} error={auto.error} />
       </div>
 
-      <Section id="guard" title="個人情報のガードレール" desc="Jev に送る前にマスク・ブロック">
-        <div className="form-grid">
-          <label htmlFor="g-enabled">ガードレール</label>
-          <div>
-            <label className="small">
-              <input
-                id="g-enabled"
-                type="checkbox"
-                checked={g.enabled}
-                onChange={(e) => {
-                  const on = e.target.checked
-                  if (!on && !window.confirm('ガードレールを外すと、元の本文のまま Jev に送ります。外しますか？')) return
-                  set((s) => ({ ...s, guard: { ...s.guard, enabled: on } }))
-                }}
-              /> 有効にする
-            </label>
-            {!g.enabled && (
-              <div className="error small" role="alert">
-                元の本文のまま Jev に送ります。ダミーデータ以外では無効にしない
-              </div>
-            )}
-          </div>
-          <label htmlFor="g-model">Kev で判定する</label>
-          <div>
-            <label className="small">
-              <input id="g-model" type="checkbox" checked={g.use_model} disabled={!g.enabled} onChange={(e) => set((s) => ({ ...s, guard: { ...s.guard, use_model: e.target.checked } }))} /> 氏名などの候補をモデルで判定する
-            </label>
-            <div className="muted small">
-              オフ: 規則だけ。候補はすべてマスク、候補外の見落としは調べない
-            </div>
-          </div>
-          <label htmlFor="g-target">判定に使う接続先</label>
-          <div>
-            <TargetSelect id="g-target" options={GUARD_TARGETS} value={g.target} onChange={(t) => set((s) => ({ ...s, guard: { ...s.guard, target: t } }))} />
-            <div className="muted small">マスク前の本文を読むため、Jev は選べません</div>
-            {warn(g.target)}
-          </div>
-          <label htmlFor="g-human">人の確認</label>
-          <label className="small">
-            <input id="g-human" type="checkbox" checked={g.human_check} onChange={(e) => set((s) => ({ ...s, guard: { ...s.guard, human_check: e.target.checked } }))} /> 検出したら人が確認（オフなら自動でマスク・ブロック）
-          </label>
-        </div>
-        <Threshold label="候補を個人情報とみなす確率" value={g.candidate_threshold} onChange={(v) => set((s) => ({ ...s, guard: { ...s.guard, candidate_threshold: v } }))} />
-        <Threshold label="取りこぼしを疑う確率" value={g.leftover_threshold} onChange={(v) => set((s) => ({ ...s, guard: { ...s.guard, leftover_threshold: v } }))} note="以上なら人が確認" />
-        <h3>種類ごとの方針</h3>
-        <div className="scroll">
-          <table className="policy-table" data-testid="policy-table">
-            <thead>
-              <tr>
-                <th>種類</th>
-                {ACTIONS.map((a) => (
-                  <th key={a}>
-                    {ACTION_LABELS[a]}
-                    <div className="muted small">{ACTION_NOTES[a]}</div>
-                  </th>
-                ))}
-              </tr>
-            </thead>
-            <tbody>
-              {PII_ORDER.map((t) => (
-                <tr key={t}>
-                  <td>{labels[t] ?? t}</td>
-                  {ACTIONS.map((a) => (
-                    <td key={a}>
-                      <input
-                        type="radio"
-                        name={`policy-${t}`}
-                        aria-label={`${labels[t] ?? t}: ${ACTION_LABELS[a]}`}
-                        checked={g.policy[t] === a}
-                        onChange={() => {
-                          if (a === 'allow' && !window.confirm(`${labels[t] ?? t}を「${ACTION_LABELS[a]}」にすると、そのまま Jev に送ります。変えますか？`)) return
-                          set((s) => ({ ...s, guard: { ...s.guard, policy: { ...s.guard.policy, [t]: a } } }))
-                        }}
-                      />
-                    </td>
-                  ))}
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-        <div className="form-grid">
-          <label htmlFor="g-blocked">ブロックした件</label>
-          <select id="g-blocked" value={g.blocked_route} onChange={(e) => set((s) => ({ ...s, guard: { ...s.guard, blocked_route: e.target.value === 'kev' ? 'kev' : 'human' } }))}>
-            <option value="human">人に回す（エスカレーション）</option>
-            <option value="kev">Kev だけで仕分ける（外部に出さない）</option>
-          </select>
-        </div>
-      </Section>
-
-      <Section id="classify" title="仕分け" desc="確信度で振り分け">
-        <div className="form-grid">
-          <label htmlFor="c-target">判定に使う接続先</label>
-          <div>
-            <TargetSelect id="c-target" options={TARGETS} value={c.target} onChange={(t) => set((s) => ({ ...s, classify: { ...s.classify, target: t } }))} />
-            {warn(c.target)}
-          </div>
-        </div>
-        <Threshold label="自動で振り分ける確信度" value={c.auto_threshold} onChange={(v) => set((s) => ({ ...s, classify: { ...s.classify, auto_threshold: v } }))} note="以上なら自動" />
-        <Threshold label="確認待ちにする確信度" value={c.review_threshold} onChange={(v) => set((s) => ({ ...s, classify: { ...s.classify, review_threshold: v } }))} note="未満はエスカレーション" />
-        {c.review_threshold > c.auto_threshold && <div className="error small">確認待ちは自動以下にしてください</div>}
-        <h3>分類ごとの自動の閾値</h3>
-        {Object.keys(c.label_thresholds).length === 0 ? (
-          <p className="muted small">
-            すべて {c.auto_threshold.toFixed(2)}（<Link to="/ops/tuning">閾値の調整</Link>で変更）
-          </p>
-        ) : (
-          <ul className="label-thresholds">
-            {Object.entries(c.label_thresholds).map(([k, v]) => (
-              <li key={k}>
-                {meta?.category_labels[k] ?? k}: <strong>{v.toFixed(2)}</strong>{' '}
-                <button
-                  type="button"
-                  className="link-btn"
-                  onClick={() =>
-                    set((s) => ({ ...s, classify: { ...s.classify, label_thresholds: Object.fromEntries(Object.entries(s.classify.label_thresholds).filter(([x]) => x !== k)) } }))
-                  }
-                >
-                  共通の値に戻す
-                </button>
-              </li>
-            ))}
-          </ul>
-        )}
-        <h3>業務ルール</h3>
-        <label className="small block">
-          <input type="checkbox" checked={c.escalate_strong_frustration} onChange={(e) => set((s) => ({ ...s, classify: { ...s.classify, escalate_strong_frustration: e.target.checked } }))} /> 強い不満はエスカレーション
-        </label>
-        <Threshold label="強い不満とみなす確率" value={c.strong_frustration_at} onChange={(v) => set((s) => ({ ...s, classify: { ...s.classify, strong_frustration_at: v } }))} note="不満度 2 の確率" />
-        <label className="small block">
-          <input type="checkbox" checked={c.escalate_urgent} onChange={(e) => set((s) => ({ ...s, classify: { ...s.classify, escalate_urgent: e.target.checked } }))} /> 緊急は確信度に関係なくエスカレーション
-        </label>
-        <Threshold label="僅差とみなす差" value={c.split_margin} onChange={(v) => set((s) => ({ ...s, classify: { ...s.classify, split_margin: v } }))} note="上位 2 つの差がこれ未満なら人が確認" />
-        <label className="small block">
-          <input type="checkbox" checked={c.insufficient_gate} onChange={(e) => set((s) => ({ ...s, classify: { ...s.classify, insufficient_gate: e.target.checked } }))} /> 判断材料が足りない件は人が確認
-        </label>
-        <Threshold label="足りないとみなす確率" value={c.insufficient_at} onChange={(v) => set((s) => ({ ...s, classify: { ...s.classify, insufficient_at: v } }))} note="これ以上なら自動にしない" />
-      </Section>
-
-      <Section id="categories" title="分類とチャンネル" desc="Jev は「説明」を読んで分類し、その分類のチャンネルに投稿する">
+      <Section id="categories" title="分類とチャンネル" desc="Jev は説明を読んで分類し、そのチャンネルに投稿します。">
         <div className="scroll">
           <table className="category-table cards-narrow" data-testid="category-table">
             <thead>
@@ -384,6 +249,210 @@ export function OpsSettings() {
         </p>
       </Section>
 
+      <Section id="auto" title="自動で振り分ける確信度" desc="これ以上なら、人を通さずに振り分けます。">
+        <Threshold label="自動で振り分ける確信度" min={c.review_threshold} value={c.auto_threshold} onChange={(v) => set((s) => ({ ...s, classify: { ...s.classify, auto_threshold: v } }))} />
+        {Object.keys(c.label_thresholds).length > 0 && (
+          <ul className="label-thresholds small">
+            {Object.entries(c.label_thresholds).map(([k, v]) => (
+              <li key={k}>
+                {meta?.category_labels[k] ?? k}: <strong>{v.toFixed(2)}</strong>（成績で変更）{' '}
+                <button
+                  type="button"
+                  className="link-btn"
+                  onClick={() =>
+                    set((s) => ({ ...s, classify: { ...s.classify, label_thresholds: Object.fromEntries(Object.entries(s.classify.label_thresholds).filter(([x]) => x !== k)) } }))
+                  }
+                >
+                  共通の値に戻す
+                </button>
+              </li>
+            ))}
+          </ul>
+        )}
+      </Section>
+
+      <Section id="pii" title="個人情報">
+        <label className="small block">
+          <input type="checkbox" checked={g.use_model} disabled={!g.enabled} onChange={(e) => set((s) => ({ ...s, guard: { ...s.guard, use_model: e.target.checked } }))} /> 氏名などを Kev で判定する
+        </label>
+        <label className="small block">
+          <input type="checkbox" checked={g.human_check} onChange={(e) => set((s) => ({ ...s, guard: { ...s.guard, human_check: e.target.checked } }))} /> 見つけたら人が確認する
+        </label>
+        <p className="muted small">
+          Kev を使わないときは、規則で見つけた候補をすべて伏せます。
+          <br />
+          人が確認しないときは、見つけた個人情報を自動で伏せて送ります。
+        </p>
+      </Section>
+      </div>
+    </Page>
+  )
+}
+
+/** 管理（開発側）: 細かい設定。利用者の設定画面には出さない。 */
+export function AdminSettings() {
+  useTitle('詳細設定')
+  const { meta, settingsError } = useOps()
+  const { status } = useShell()
+  const auto = useAutoSave(ADMIN.changed, ADMIN.merge, thresholdInvalid)
+  const { draft, set } = auto
+  if (!draft) return <Page crumbs={[{ label: '管理', to: '/admin' }, { label: '詳細設定' }]}>{settingsError ?? '読み込み中…'}</Page>
+  const g = draft.guard
+  const c = draft.classify
+  const a = draft.assign
+  const labels: Record<string, string> = meta?.pii_types ?? {}
+  const warn = (t: Mode) => {
+    const ts = targetStatus(status, t)
+    return ts && !ts.available ? <div className="warn-box small">{ts.reason}</div> : null
+  }
+  return (
+    <Page crumbs={[{ label: '管理', to: '/admin' }, { label: '詳細設定' }]}>
+      <AdminTabs />
+      <div {...auto.handlers}>
+      <div className="panel-head">
+        <h1>詳細設定</h1>
+        <SaveState status={auto.status} error={auto.error} />
+      </div>
+
+      <Section id="guard" title="個人情報のガードレール" desc="Jev に送る前にマスク・ブロック">
+        <div className="form-grid">
+          <label htmlFor="g-enabled">ガードレール</label>
+          <div>
+            <label className="small">
+              <input
+                id="g-enabled"
+                type="checkbox"
+                checked={g.enabled}
+                onChange={(e) => {
+                  const on = e.target.checked
+                  if (!on && !window.confirm('ガードレールを外すと、元の本文のまま Jev に送ります。外しますか？')) return
+                  set((s) => ({ ...s, guard: { ...s.guard, enabled: on } }))
+                }}
+              /> 有効にする
+            </label>
+            {!g.enabled && (
+              <div className="error small" role="alert">
+                元の本文のまま Jev に送ります。ダミーデータ以外では無効にしない
+              </div>
+            )}
+          </div>
+          <label htmlFor="g-model">Kev で判定する</label>
+          <div>
+            <label className="small">
+              <input id="g-model" type="checkbox" checked={g.use_model} disabled={!g.enabled} onChange={(e) => set((s) => ({ ...s, guard: { ...s.guard, use_model: e.target.checked } }))} /> 氏名などの候補をモデルで判定する
+            </label>
+            <div className="muted small">
+              オフ: 規則だけ。候補はすべてマスク、候補外の見落としは調べない
+            </div>
+          </div>
+          <label htmlFor="g-target">判定に使う接続先</label>
+          <div>
+            <TargetSelect id="g-target" options={GUARD_TARGETS} value={g.target} onChange={(t) => set((s) => ({ ...s, guard: { ...s.guard, target: t } }))} />
+            <div className="muted small">マスク前の本文を読むため、Jev は選べません</div>
+            {warn(g.target)}
+          </div>
+          <label htmlFor="g-human">人の確認</label>
+          <label className="small">
+            <input id="g-human" type="checkbox" checked={g.human_check} onChange={(e) => set((s) => ({ ...s, guard: { ...s.guard, human_check: e.target.checked } }))} /> 検出したら人が確認（オフなら自動でマスク・ブロック）
+          </label>
+        </div>
+        <Threshold label="候補を個人情報とみなす確率" value={g.candidate_threshold} onChange={(v) => set((s) => ({ ...s, guard: { ...s.guard, candidate_threshold: v } }))} />
+        <Threshold label="取りこぼしを疑う確率" value={g.leftover_threshold} onChange={(v) => set((s) => ({ ...s, guard: { ...s.guard, leftover_threshold: v } }))} note="以上なら人が確認" />
+        <h3>種類ごとの方針</h3>
+        <div className="scroll">
+          <table className="policy-table" data-testid="policy-table">
+            <thead>
+              <tr>
+                <th>種類</th>
+                {ACTIONS.map((a) => (
+                  <th key={a}>
+                    {ACTION_LABELS[a]}
+                    <div className="muted small">{ACTION_NOTES[a]}</div>
+                  </th>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              {PII_ORDER.map((t) => (
+                <tr key={t}>
+                  <td>{labels[t] ?? t}</td>
+                  {ACTIONS.map((a) => (
+                    <td key={a}>
+                      <input
+                        type="radio"
+                        name={`policy-${t}`}
+                        aria-label={`${labels[t] ?? t}: ${ACTION_LABELS[a]}`}
+                        checked={g.policy[t] === a}
+                        onChange={() => {
+                          if (a === 'allow' && !window.confirm(`${labels[t] ?? t}を「${ACTION_LABELS[a]}」にすると、そのまま Jev に送ります。変えますか？`)) return
+                          set((s) => ({ ...s, guard: { ...s.guard, policy: { ...s.guard.policy, [t]: a } } }))
+                        }}
+                      />
+                    </td>
+                  ))}
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+        <div className="form-grid">
+          <label htmlFor="g-blocked">ブロックした件</label>
+          <select id="g-blocked" value={g.blocked_route} onChange={(e) => set((s) => ({ ...s, guard: { ...s.guard, blocked_route: e.target.value === 'kev' ? 'kev' : 'human' } }))}>
+            <option value="human">人に回す（エスカレーション）</option>
+            <option value="kev">Kev だけで仕分ける（外部に出さない）</option>
+          </select>
+        </div>
+      </Section>
+
+      <Section id="classify" title="仕分け" desc="確信度で振り分け">
+        <div className="form-grid">
+          <label htmlFor="c-target">判定に使う接続先</label>
+          <div>
+            <TargetSelect id="c-target" options={TARGETS} value={c.target} onChange={(t) => set((s) => ({ ...s, classify: { ...s.classify, target: t } }))} />
+            {warn(c.target)}
+          </div>
+        </div>
+        <Threshold label="自動で振り分ける確信度" value={c.auto_threshold} onChange={(v) => set((s) => ({ ...s, classify: { ...s.classify, auto_threshold: v } }))} note="以上なら自動" />
+        <Threshold label="確認待ちにする確信度" value={c.review_threshold} onChange={(v) => set((s) => ({ ...s, classify: { ...s.classify, review_threshold: v } }))} note="未満はエスカレーション" />
+        {c.review_threshold > c.auto_threshold && <div className="error small">確認待ちは自動以下にしてください</div>}
+        <h3>分類ごとの自動の閾値</h3>
+        {Object.keys(c.label_thresholds).length === 0 ? (
+          <p className="muted small">
+            すべて {c.auto_threshold.toFixed(2)}（<Link to="/ops/tuning">成績</Link>で変更）
+          </p>
+        ) : (
+          <ul className="label-thresholds">
+            {Object.entries(c.label_thresholds).map(([k, v]) => (
+              <li key={k}>
+                {meta?.category_labels[k] ?? k}: <strong>{v.toFixed(2)}</strong>{' '}
+                <button
+                  type="button"
+                  className="link-btn"
+                  onClick={() =>
+                    set((s) => ({ ...s, classify: { ...s.classify, label_thresholds: Object.fromEntries(Object.entries(s.classify.label_thresholds).filter(([x]) => x !== k)) } }))
+                  }
+                >
+                  共通の値に戻す
+                </button>
+              </li>
+            ))}
+          </ul>
+        )}
+        <h3>業務ルール</h3>
+        <label className="small block">
+          <input type="checkbox" checked={c.escalate_strong_frustration} onChange={(e) => set((s) => ({ ...s, classify: { ...s.classify, escalate_strong_frustration: e.target.checked } }))} /> 強い不満はエスカレーション
+        </label>
+        <Threshold label="強い不満とみなす確率" value={c.strong_frustration_at} onChange={(v) => set((s) => ({ ...s, classify: { ...s.classify, strong_frustration_at: v } }))} note="不満度 2 の確率" />
+        <label className="small block">
+          <input type="checkbox" checked={c.escalate_urgent} onChange={(e) => set((s) => ({ ...s, classify: { ...s.classify, escalate_urgent: e.target.checked } }))} /> 緊急は確信度に関係なくエスカレーション
+        </label>
+        <Threshold label="僅差とみなす差" value={c.split_margin} onChange={(v) => set((s) => ({ ...s, classify: { ...s.classify, split_margin: v } }))} note="上位 2 つの差がこれ未満なら人が確認" />
+        <label className="small block">
+          <input type="checkbox" checked={c.insufficient_gate} onChange={(e) => set((s) => ({ ...s, classify: { ...s.classify, insufficient_gate: e.target.checked } }))} /> 判断材料が足りない件は人が確認
+        </label>
+        <Threshold label="足りないとみなす確率" value={c.insufficient_at} onChange={(v) => set((s) => ({ ...s, classify: { ...s.classify, insufficient_at: v } }))} note="これ以上なら自動にしない" />
+      </Section>
+
       <Section id="kev-first" title="Kev で先に判定" desc="十分な確信度なら Jev を呼ばない">
         <label className="small block">
           <input type="checkbox" checked={draft.kev_first.enabled} onChange={(e) => set((s) => ({ ...s, kev_first: { ...s.kev_first, enabled: e.target.checked } }))} /> 有効にする
@@ -393,8 +462,30 @@ export function OpsSettings() {
         <p className="note">使う前に評価で一致率を確認</p>
       </Section>
 
-      <Section id="staff" title="担当者" desc="「担当者」画面で管理します。">
-        <Link to="/ops/staff">担当者の画面を開く →</Link>
+      <Section id="assign" title="担当の自動の割り当て">
+        <label className="small block">
+          <input type="checkbox" checked={a.auto} onChange={(e) => set((s) => ({ ...s, assign: { ...s.assign, auto: e.target.checked } }))} /> 確率が高い件は自動で割り当てる
+        </label>
+        <Threshold label="自動で割り当てる確率" value={a.threshold} onChange={(v) => set((s) => ({ ...s, assign: { ...s.assign, threshold: v } }))} />
+        <label className="small block">
+          <input type="checkbox" checked={a.use_examples} onChange={(e) => set((s) => ({ ...s, assign: { ...s.assign, use_examples: e.target.checked } }))} /> 最近完了した件（{a.max_examples} 件まで）を例として渡す
+        </label>
+        <label className="small block">
+          担当範囲の案は完了{' '}
+          <input
+            type="number"
+            className="num-input"
+            min={1}
+            max={200}
+            value={a.scope_draft_min}
+            aria-label="担当範囲の案を作れる完了件数"
+            onChange={(e) => {
+              const v = Math.round(Number(e.target.value))
+              if (Number.isFinite(v) && v >= 1 && v <= 200) set((s) => ({ ...s, assign: { ...s.assign, scope_draft_min: v } }))
+            }}
+          />{' '}
+          件から作れる
+        </label>
       </Section>
       </div>
     </Page>

@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import { useSearchParams } from 'react-router'
 import { errorMessage } from '../../api'
 import { Page, useTitle } from '../../shell'
+import { QueueTabs } from '../tabs'
 import { ops } from '../api'
 import { Empty, ItemRow } from '../components'
 import { ItemPanel } from '../ItemPanel'
@@ -74,7 +75,8 @@ export function Review() {
   }, [current, wanted, meta, items, list, refresh, select])
 
   return (
-    <Page wide crumbs={[{ label: '運用', to: '/ops' }, { label: '分類の確認' }]}>
+    <Page wide crumbs={[{ label: '運用', to: '/ops' }, { label: '対応待ち' }, { label: '分類の確認' }]}>
+      <QueueTabs />
       <div className="panel-head">
         <h1>分類の確認</h1>
         <span className="muted small">
