@@ -1,17 +1,15 @@
-import { useState, type ReactNode } from 'react'
+import { type ReactNode } from 'react'
 import { Link } from 'react-router'
 import { type Mode } from '../../api'
-import { pct } from '../../format'
 import { Page, targetStatus, useShell, useTitle } from '../../shell'
 import type { CategoryDef, PiiAction, PiiType, Settings } from '../api'
 import { useAutoSave } from '../autosave'
-import { SaveState, WeightSliders } from '../components'
+import { SaveState } from '../components'
 import { ACTION_LABELS, ACTION_NOTES } from '../format'
 import { useOps } from '../state'
 
 const TARGETS: readonly Mode[] = ['custom', 'jev', 'mock']
 const GUARD_TARGETS = ['custom', 'mock'] as const
-const WEEKDAYS = ['月', '火', '水', '木', '金', '土', '日']
 
 const TARGET_NAMES: Record<Mode, string> = { custom: 'Kev（ローカル・閉域）', jev: 'Jev（外部・課金あり）', mock: 'MOCK（API を呼ばない）' }
 const PII_ORDER: PiiType[] = ['person_name', 'phone', 'email', 'sns_account', 'postal_code', 'address', 'birthday', 'card', 'bank_account']
@@ -67,21 +65,9 @@ function TargetSelect<T extends Mode>({
 }
 
 // この画面で編集する項目（ほかの画面の項目は、保存のときに最新の値を使う）
-const KEYS = ['categories', 'fallback_category', 'guard', 'classify', 'kev_first', 'audit_rate', 'sla', 'priority_weights'] as const
+const KEYS = ['categories', 'fallback_category', 'guard', 'classify', 'kev_first'] as const
 const settingsChanged = (d: Settings, s: Settings) => KEYS.some((k) => JSON.stringify(d[k]) !== JSON.stringify(s[k]))
 const mergeSettings = (latest: Settings, d: Settings): Settings => ({ ...latest, ...Object.fromEntries(KEYS.map((k) => [k, d[k]])) })
-
-function slaInvalid(sla: Settings['sla']): string | null {
-  return !(sla.hours > 0)
-    ? '対応目安は 0 より大きくしてください'
-    : sla.start >= sla.end
-      ? '営業時間の開始は終了より前にしてください'
-      : sla.days.length === 0
-        ? '営業日を選んでください'
-        : sla.holidays.some((d) => !/^\d{4}-\d{2}-\d{2}$/.test(d))
-          ? '休業日は 2026-01-01 の形で書いてください'
-          : null
-}
 
 const MAX_ACTIVE = 9
 
@@ -122,22 +108,18 @@ function categoriesInvalid(d: Settings): string | null {
 }
 
 const settingsInvalid = (d: Settings): string | null =>
-  categoriesInvalid(d) ?? (d.classify.review_threshold > d.classify.auto_threshold ? '確認待ちの閾値が自動の閾値を超えています' : slaInvalid(d.sla))
+  categoriesInvalid(d) ?? (d.classify.review_threshold > d.classify.auto_threshold ? '確認待ちの閾値が自動の閾値を超えています' : null)
 
 export function OpsSettings() {
   useTitle('運用の設定')
   const { meta, settingsError, overview } = useOps()
   const { status } = useShell()
   const used = new Set(overview?.used_categories ?? [])
-  // 休業日の欄は入力中の文字列をそのまま持つ（区切りのカンマを打った途端に消えないように）
-  const [holidayText, setHolidayText] = useState<string | null>(null)
   const auto = useAutoSave(settingsChanged, mergeSettings, settingsInvalid)
   const { draft, set } = auto
   if (!draft) return <Page crumbs={[{ label: '運用', to: '/ops' }, { label: '設定' }]}>{settingsError ?? '読み込み中…'}</Page>
   const g = draft.guard
   const c = draft.classify
-  const sla = draft.sla
-  const slaError = slaInvalid(sla)
   const catError = categoriesInvalid(draft)
   const setCat = (key: string, patch: Partial<CategoryDef>) =>
     set((s) => withFallback({ ...s, categories: s.categories.map((x) => (x.key === key ? { ...x, ...patch } : x)) }))
@@ -411,66 +393,8 @@ export function OpsSettings() {
         <p className="note">使う前に評価で一致率を確認</p>
       </Section>
 
-      <Section id="audit" title="抜き取り確認" desc="自動分の一部を人が確認">
-        <Threshold label="抜き取る割合" step={0.01} value={draft.audit_rate} onChange={(v) => set((s) => ({ ...s, audit_rate: v }))} note={pct(draft.audit_rate, 0)} />
-      </Section>
-
-      <Section id="sla" title="対応目安" desc="営業時間で数える">
-        <div className="form-grid">
-          <label htmlFor="sla-hours">対応目安</label>
-          <label className="small">
-            <input
-              id="sla-hours"
-              type="number"
-              className="num-input"
-              min={0.5}
-              step={0.5}
-              value={Number.isFinite(sla.hours) ? sla.hours : ''}
-              onChange={(e) => set((s) => ({ ...s, sla: { ...s.sla, hours: e.target.value === '' ? Number.NaN : Number(e.target.value) } }))}
-            />{' '}
-            営業時間
-          </label>
-          <label htmlFor="sla-start">営業時間</label>
-          <span className="small">
-            <input id="sla-start" type="time" value={sla.start} onChange={(e) => set((s) => ({ ...s, sla: { ...s.sla, start: e.target.value } }))} /> 〜{' '}
-            <input aria-label="営業時間の終わり" type="time" value={sla.end} onChange={(e) => set((s) => ({ ...s, sla: { ...s.sla, end: e.target.value } }))} />
-          </span>
-          <span>営業日</span>
-          <span className="small" role="group" aria-label="営業日">
-            {WEEKDAYS.map((w, d) => (
-              <label key={w} className="day-check">
-                <input
-                  type="checkbox"
-                  checked={sla.days.includes(d)}
-                  onChange={(e) =>
-                    set((s) => ({ ...s, sla: { ...s.sla, days: e.target.checked ? [...s.sla.days, d].sort() : s.sla.days.filter((x) => x !== d) } }))
-                  }
-                />
-                {w}
-              </label>
-            ))}
-          </span>
-          <label htmlFor="sla-holidays">休業日</label>
-          <input
-            id="sla-holidays"
-            value={holidayText ?? sla.holidays.join(', ')}
-            placeholder="例: 2026-12-29, 2026-12-30"
-            onChange={(e) => {
-              const v = e.target.value
-              setHolidayText(v)
-              set((s) => ({ ...s, sla: { ...s.sla, holidays: v.split(/[\s,、]+/).filter(Boolean) } }))
-            }}
-          />
-        </div>
-        {slaError && <div className="error small">{slaError}</div>}
-      </Section>
-
       <Section id="staff" title="担当者" desc="「担当者」画面で管理します。">
         <Link to="/ops/staff">担当者の画面を開く →</Link>
-      </Section>
-
-      <Section id="weights" title="優先度の重み" desc="大きいほど上に並ぶ">
-        <WeightSliders weights={draft.priority_weights} onChange={(w) => set((s) => ({ ...s, priority_weights: w }))} />
       </Section>
       </div>
     </Page>

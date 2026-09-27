@@ -2,13 +2,12 @@ from __future__ import annotations
 
 import asyncio
 from collections.abc import Callable, Mapping
-from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 import pytest
 
 from jevlab.core.engine import AnswerView
-from jevlab.ops.models import IngestRequest, Settings, SlackSettings, SlaSettings, StaffMember
+from jevlab.ops.models import IngestRequest, Settings, SlackSettings, StaffMember
 from jevlab.ops.pipeline import ESCALATION_CHANNEL, INBOUND_CHANNEL, Pipeline
 from jevlab.ops.slack import InboundHandle, SdkSlackApi, SlackConnector, SlackSendError, inbound_request
 from jevlab.ops.store import Store
@@ -208,14 +207,11 @@ def with_staff(conn: SlackConnector, **slack: object) -> None:
         StaffMember(id="suzuki", name="鈴木"),
         StaffMember(id="tamura", name="田村", slack_user_id="U0TAMURA1"),
     ]
-    # 対応目安は、いつでも営業時間・30 分にしておく（テストの時刻に左右されないように）
-    sla = SlaSettings(hours=0.5, days=[0, 1, 2, 3, 4, 5, 6], start="00:00", end="23:59")
     store.put_settings(
         s.model_copy(
             update={
                 "staff": staff,
-                "sla": sla,
-                "slack": s.slack.model_copy(update={"dispatcher": "sato", "reminder_before_min": 10, **slack}),
+                "slack": s.slack.model_copy(update={"dispatcher": "sato", **slack}),
             }
         )
     )
@@ -268,45 +264,6 @@ async def test_escalation_thread_mentions_auto_assignee_and_follows_changes(tmp_
     assert follow[:3] == ["鈴木 担当になりました", "担当を外しました", "<@U0SATO001> 担当になりました"]
     assert follow[-1] == "対応完了（担当: 佐藤）"
     assert all(ts == "1.0" for ts in api.threads[1:])
-
-
-@pytest.mark.anyio
-async def test_reminder_is_sent_only_once_before_sla(tmp_path: Path) -> None:
-    api = FakeApi()
-    conn = make(tmp_path, api, None, outbound=True, channel_map={ESCALATION_CHANNEL: C_ESC})
-    with_staff(conn, reminder_before_min=10)
-    await conn.tick()
-    fresh = escalate(conn)
-    late = escalate(conn)
-    await conn.tick()
-    store = conn.pipeline.store
-    # 受信から 21 分たった件だけが、対応目安（30 分）の 10 分前を過ぎている
-    old = (datetime.now(UTC) - timedelta(minutes=21)).isoformat()
-    store.update(late, lambda i: i.model_copy(update={"received_at": old}))
-    for _ in range(3):
-        conn._next_remind = 0.0
-        await conn.tick()
-    reminders = [t for _, t in api.sent if "対応目安" in t]
-    assert len(reminders) == 1 and "<@U0SATO001>" in reminders[0]
-    assert store.get(late).slack_reminded and not store.get(fresh).slack_reminded
-
-
-@pytest.mark.anyio
-async def test_no_reminder_when_assigned_or_turned_off(tmp_path: Path) -> None:
-    api = FakeApi()
-    conn = make(tmp_path, api, None, outbound=True, channel_map={ESCALATION_CHANNEL: C_ESC})
-    with_staff(conn, reminder=False)
-    await conn.tick()
-    item_id = escalate(conn)
-    await conn.tick()
-    old = (datetime.now(UTC) - timedelta(minutes=29)).isoformat()
-    conn.pipeline.store.update(item_id, lambda i: i.model_copy(update={"received_at": old}))
-    conn._next_remind = 0.0
-    await conn.tick()
-    assert not [t for _, t in api.sent if "対応目安" in t]
-
-
-# ---- レビューの指摘への対応 ----
 
 
 @pytest.mark.anyio
@@ -404,28 +361,6 @@ async def test_inbound_state_follows_connection(tmp_path: Path) -> None:
     await conn.tick()
     assert conn.status().inbound.state == "connecting"
 
-
-@pytest.mark.anyio
-async def test_reminder_after_sla_and_skips_items_assigned_meanwhile(tmp_path: Path) -> None:
-    api = FakeApi()
-    conn = make(tmp_path, api, None, outbound=True, channel_map={ESCALATION_CHANNEL: C_ESC})
-    with_staff(conn)
-    await conn.tick()
-    late = escalate(conn)
-    assigned = escalate(conn)
-    await conn.tick()
-    store = conn.pipeline.store
-    old = (datetime.now(UTC) - timedelta(minutes=35)).isoformat()
-    for i in (late, assigned):
-        store.update(i, lambda it: it.model_copy(update={"received_at": old}))
-    conn.pipeline.assign(assigned, "suzuki")
-    conn._next_remind = 0.0
-    await conn.tick()
-    reminders = [t for _, t in api.sent if "対応目安" in t]
-    assert reminders == ["<@U0SATO001> 対応目安を過ぎています。担当が未定です"]
-
-
-# ---- 振り分けた件の親の投稿と、対応完了 ----
 
 C_COMPLAINT = "C0COMPLAIN1"
 
@@ -649,7 +584,7 @@ def test_purge_needs_mapped_channels(tmp_path: Path) -> None:
 def _route_as(conn: SlackConnector, category: str) -> str:
     """確信度 0.99 で自動で振り分けになる件を作る（抜き取り確認はしない）。"""
     store = conn.pipeline.store
-    settings = store.settings().model_copy(update={"audit_rate": 0.0})
+    settings = store.settings()
     store.put_settings(settings)
     item = store.add_item(IngestRequest(channel="mail", subject="ありがとうございました", body="本文"))
     item = store.update(item.id, lambda i: i.model_copy(update={"category": category, "confidence": 0.99}))
@@ -693,7 +628,7 @@ async def test_routed_item_needing_a_reply_is_assigned_and_mentioned(tmp_path: P
     with_staff(conn)
     await conn.tick()
     store = conn.pipeline.store
-    store.put_settings(store.settings().model_copy(update={"audit_rate": 0.0}))
+    store.put_settings(store.settings())
     item = store.add_item(IngestRequest(channel="mail", subject="在庫について", body="本文"))
     item = store.update(
         item.id,
@@ -736,7 +671,7 @@ async def test_thanks_decided_in_review_is_closed_without_mention(tmp_path: Path
 def _route_other(conn: SlackConnector, reply_p: float) -> str:
     """その他（返信の要否を判定する分類）を、返信が要る確率を決めて自動で振り分ける。"""
     store = conn.pipeline.store
-    store.put_settings(store.settings().model_copy(update={"audit_rate": 0.0}))
+    store.put_settings(store.settings())
     item = store.add_item(IngestRequest(channel="mail", subject="ご案内", body="本文"))
     view = AnswerView(type="noul", prediction=reply_p >= 0.5, value=reply_p)
     item = store.update(

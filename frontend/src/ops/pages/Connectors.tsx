@@ -74,13 +74,6 @@ const SLACK_ID = /^[CG][A-Z0-9]{6,20}$/
 
 const splitIds = (v: string) => v.split(/[\s,、]+/).filter(Boolean)
 const badSlackIds = (d: Settings) => [...Object.values(d.slack.channel_map).filter(Boolean), ...d.slack.inbound_channels].filter((id) => !SLACK_ID.test(id))
-// 知らせる時間は、対応目安（営業時間）より短くする。空欄は 0 として送らない
-const maxRemindOf = (d: Settings) => Math.max(1, Math.round(d.sla.hours * 60) - 1)
-const remindInvalid = (d: Settings): string | null => {
-  const m = d.slack.reminder_before_min
-  const max = maxRemindOf(d)
-  return Number.isInteger(m) && m >= 1 && m <= max ? null : `知らせる時間は 1〜${max} 分で入れてください`
-}
 const slackChanged = (d: Settings, s: Settings) =>
   JSON.stringify(d.slack) !== JSON.stringify(s.slack) || d.connectors.slack !== s.connectors.slack
 const mergeSlack = (latest: Settings, d: Settings): Settings => ({
@@ -90,7 +83,7 @@ const mergeSlack = (latest: Settings, d: Settings): Settings => ({
 })
 const slackInvalid = (d: Settings): string | null => {
   const bad = badSlackIds(d)
-  return bad.length ? `チャンネル ID の形式が違います: ${bad.join(', ')}` : remindInvalid(d)
+  return bad.length ? `チャンネル ID の形式が違います: ${bad.join(', ')}` : null
 }
 
 /** 投稿先のチャンネルから jevlab の投稿を消す（デモで流しすぎたとき用）。 */
@@ -147,7 +140,6 @@ function SlackPanel() {
   const setReceivingDraft = (on: boolean) => auto.set((s) => ({ ...s, connectors: { ...s.connectors, slack: on } }))
   const inbound = inboundText ?? draft.inbound_channels.join(', ')
   const receiving = d.connectors.slack ?? false
-  const maxRemind = maxRemindOf(d)
   return (
     <section className="panel" data-testid="slack" {...auto.handlers}>
       <h2>Slack</h2>
@@ -223,20 +215,6 @@ function SlackPanel() {
               </option>
             ))}
         </select>
-        <label htmlFor="slack-remind">担当未定の知らせ</label>
-        <label className="small">
-          <input id="slack-remind" type="checkbox" checked={draft.reminder} onChange={(e) => setEdit({ ...draft, reminder: e.target.checked })} /> 対応目安の{' '}
-          <input
-            type="number"
-            className="num-input"
-            aria-label="何分前に知らせるか"
-            min={1}
-            max={maxRemind}
-            value={Number.isFinite(draft.reminder_before_min) ? draft.reminder_before_min : ''}
-            onChange={(e) => setEdit({ ...draft, reminder_before_min: e.target.value === '' ? Number.NaN : Number(e.target.value) })}
-          />{' '}
-          分前（営業時間）に 1 回だけ
-        </label>
         <label htmlFor="slack-url">画面へのリンク</label>
         <input id="slack-url" value={draft.app_url} onChange={(e) => setEdit({ ...draft, app_url: e.target.value.trim() })} />
       </div>

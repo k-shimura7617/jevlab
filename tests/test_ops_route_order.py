@@ -1,4 +1,4 @@
-"""仕分けの順番（pipeline.py の表 R1〜R8・A1〜A3、docs/adr/0029）を 1 行ずつ固定する。
+"""仕分けの順番（pipeline.py の表 R1〜R8・A2〜A3、docs/adr/0029）を 1 行ずつ固定する。
 
 行を足す・順番を変えるときは、表・ADR・このテストを一緒に直す。
 """
@@ -88,25 +88,22 @@ def test_route_order(tmp_path: Path, row: str, case: Case, route: str) -> None:
     assert decide_route(item, settings)[0] == route, row
 
 
-AFTER_ROUTE: list[tuple[str, Case, bool, str]] = [
-    ("A1", Case(category="thanks"), True, "hold"),
-    ("A2-thanks", Case(category="thanks"), False, "close"),
+AFTER_ROUTE: list[tuple[str, Case, str]] = [
+    ("A2-thanks", Case(category="thanks"), "close"),
     # 返信の要否を判定する分類（その他）で、返信が要る確率が 0.5 未満
-    ("A2-other", Case(category="other", needs_reply=0.2), False, "close"),
-    # 抜き取り確認に選ばれても、返信の要る件は担当を割り当てる
-    ("A3-audit", Case(), True, "assign"),
-    ("A3", Case(), False, "assign"),
-    ("A3-other", Case(category="other", needs_reply=0.8), False, "assign"),
+    ("A2-other", Case(category="other", needs_reply=0.2), "close"),
+    ("A3", Case(), "assign"),
+    ("A3-other", Case(category="other", needs_reply=0.8), "assign"),
     # 返信の要否を判定する分類でも、強い不満・緊急の兆しがあれば自動で完了にしない
-    ("A3-other-urgent", Case(category="other", needs_reply=0.2, urgent=True), False, "assign"),
+    ("A3-other-urgent", Case(category="other", needs_reply=0.2, urgent=True), "assign"),
     # 返信のいらない分類は、緊急の兆しがあっても完了
-    ("A2-thanks-urgent", Case(category="thanks", urgent=True), False, "close"),
+    ("A2-thanks-urgent", Case(category="thanks", urgent=True), "close"),
 ]
 
 
-@pytest.mark.parametrize(("row", "case", "audit", "then"), AFTER_ROUTE, ids=[r for r, _, _, _ in AFTER_ROUTE])
-def test_after_route(tmp_path: Path, row: str, case: Case, audit: bool, then: str) -> None:
+@pytest.mark.parametrize(("row", "case", "then"), AFTER_ROUTE, ids=[r for r, _, _ in AFTER_ROUTE])
+def test_after_route(tmp_path: Path, row: str, case: Case, then: str) -> None:
     item, settings = item_of(Store(tmp_path / "ops.db"), case)
-    got, reason = after_route(item, settings, audit=audit)
+    got, reason = after_route(item, settings)
     assert got == then, row
     assert (reason is not None) == (then == "close"), row

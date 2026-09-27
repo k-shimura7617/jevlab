@@ -8,7 +8,6 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
-import hashlib
 import logging
 from collections.abc import Mapping
 from dataclasses import dataclass, field
@@ -138,13 +137,9 @@ def _types_text(spans: list[Span]) -> str:
     return "・".join(kinds) if kinds else "なし"
 
 
-def _stable_unit(seed: str) -> float:
-    return int(hashlib.sha256(seed.encode()).hexdigest()[:8], 16) / 0xFFFFFFFF
-
-
 Route = Literal["routed", "review", "escalated"]
-# 自動で振り分けた後にすること。close: 完了にする／assign: 担当を割り当てる／hold: 抜き取り確認のため、そのまま人を待つ
-AfterRoute = Literal["close", "assign", "hold"]
+# 自動で振り分けた後にすること。close: 完了にする／assign: 担当を割り当てる
+AfterRoute = Literal["close", "assign"]
 
 # ---- 仕分けの順番（ここだけで決める。docs/adr/0029 と tests/test_ops_route_order.py が同じ表） ----
 #
@@ -159,7 +154,6 @@ AfterRoute = Literal["close", "assign", "hold"]
 #    R8 それ以外 → エスカレーション
 #
 # 2. 自動で振り分けた後（after_route）。返信が要るかは no_reply_reason で決める。
-#    A1 返信が要らず、抜き取り確認に選ばれた → そのまま（人が見るまで完了にしない）
 #    A2 返信が要らない → 完了（Slack には投稿し、スレッドに完了を書いて ✅）
 #    A3 返信が要る → 担当を割り当てる（確率が閾値に届かなければ仮で）
 #    返信が要らない: 返信のいらない分類／返信の要否を判定する分類で、強い不満・緊急の兆しがなく P(返信が要る) < 0.5
@@ -202,12 +196,12 @@ def _needs_attention(item: Item, settings: Settings) -> bool:
     return urgent is not None and urgent.prediction is True
 
 
-def after_route(item: Item, settings: Settings, *, audit: bool) -> tuple[AfterRoute, str | None]:
-    """自動で振り分けた件のその後（仕分けの順番の A1〜A3）。完了にするときは、その理由も返す。"""
+def after_route(item: Item, settings: Settings) -> tuple[AfterRoute, str | None]:
+    """自動で振り分けた件のその後（仕分けの順番の A2・A3）。完了にするときは、その理由も返す。"""
     no_reply = no_reply_reason(item, settings)
     if no_reply is None:
         return "assign", None
-    return ("hold", None) if audit else ("close", no_reply)
+    return "close", no_reply
 
 
 def decide_route(item: Item, settings: Settings) -> tuple[Route, str]:
@@ -274,33 +268,6 @@ def split_reason(answers: Mapping[str, AnswerView], margin: float) -> str | None
     ):
         return "不満度の判定が両端に割れている"
     return None
-
-
-def priority_parts(answers: Mapping[str, AnswerView]) -> dict[str, float]:
-    """優先度の観点ごとの値（0〜1）。"""
-
-    def value(qid: str, scale: float) -> float:
-        a = answers.get(qid)
-        return (a.value or 0.0) / scale if a is not None else 0.0
-
-    # 返金に触れていない件は、返金度の期待値（0 以外になりうる）を足さない
-    mentioned = answers.get("refund_mentioned")
-    refund = value("refund", 2) if mentioned is None or (mentioned.value or 0.0) >= 0.5 else 0.0
-    return {
-        "frustration": value("frustration", 2),
-        "urgent": value("urgent", 1),
-        "refund": refund,
-        "publicity": value("publicity", 1),
-    }
-
-
-def priority_score(answers: Mapping[str, AnswerView], weights: Mapping[str, float]) -> float:
-    """優先度（観点ごとの値の重み付き平均）。画面でも同じ式で並べ替える。"""
-    parts = priority_parts(answers)
-    total = sum(max(w, 0.0) for w in weights.values())
-    if total <= 0:
-        return 0.0
-    return sum(parts.get(k, 0.0) * max(w, 0.0) for k, w in weights.items()) / total
 
 
 @dataclass
@@ -674,10 +641,9 @@ class Pipeline:
             label = {"routed": "自動で振り分け", "review": "分類の確認", "escalated": "エスカレーション"}[route]
             self._close_backfill(item, route, f"{label}になる（{reason}）")
             return
-        audit = route == "routed" and _stable_unit(f"audit:{item.id}") < settings.audit_rate
         self.store.update(
             item.id,
-            lambda i: i.model_copy(update={"status": route, "reason": reason, "audit": audit, "first_route": route}),
+            lambda i: i.model_copy(update={"status": route, "reason": reason, "first_route": route}),
         )
         match route:
             case "routed":
@@ -687,16 +653,12 @@ class Pipeline:
                     "system",
                     f"自動で {settings.route_channel(item.category)} へ（{reason}）",
                 )
-                then, no_reply = after_route(item, settings, audit=audit)
+                then, no_reply = after_route(item, settings)
                 if then == "assign":
                     # 返信の要る件は、担当を割り当てて（届かなければ仮で）Slack でメンションする
                     self._auto_assign(item, settings)
                 self._post_routed(item, by="jevlab（自動）")
-                if audit:
-                    self.store.add_event(
-                        item.id, "audit", "system", f"抜き取り確認の対象に選ばれました（{settings.audit_rate:.0%}）"
-                    )
-                elif then == "close" and no_reply is not None:
+                if then == "close" and no_reply is not None:
                     self._auto_close(item, no_reply)
             case "review":
                 self.store.add_event(item.id, "review", "system", f"確認待ちへ（{reason}）")

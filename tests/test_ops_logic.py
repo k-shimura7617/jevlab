@@ -10,7 +10,7 @@ from jevlab.ops import misses, tuning
 from jevlab.ops import questions as oq
 from jevlab.ops.models import IngestRequest, Item, MissReport, Settings
 from jevlab.ops.pii import Span
-from jevlab.ops.pipeline import Pipeline, decide_route, priority_parts, priority_score, safe_title
+from jevlab.ops.pipeline import Pipeline, decide_route, safe_title
 from jevlab.ops.store import Store
 
 
@@ -53,13 +53,6 @@ def test_label_threshold_overrides_common_threshold() -> None:
     s = s.model_copy(update={"classify": s.classify.model_copy(update={"label_thresholds": {"inquiry": 0.6}})})
     item = make_item(category="inquiry", confidence=0.7, answers=answers(0.7))
     assert decide_route(item, s)[0] == "routed"
-
-
-def test_priority_score_is_weighted_mean() -> None:
-    a = answers(0.9, frustration=2, urgent=1.0)
-    assert priority_score(a, {"frustration": 1, "urgent": 1}) == 1.0
-    assert priority_score(a, {"frustration": 1, "refund": 1}) == 0.5
-    assert priority_score(a, {"frustration": 0}) == 0.0
 
 
 def test_field_candidates_and_questions() -> None:
@@ -230,41 +223,6 @@ def test_mock_choice_picks_the_most_probable_option() -> None:
         assert max(probs, key=lambda k: probs[k]) == a["choice"]
 
 
-def test_business_minutes_skip_nights_and_weekends() -> None:
-    from datetime import datetime
-    from zoneinfo import ZoneInfo
-
-    from jevlab.ops.models import SlaSettings
-    from jevlab.ops.sla import business_minutes, minutes_left
-
-    tz = ZoneInfo("Asia/Tokyo")
-    sla = SlaSettings()
-    # 金曜 17:00 → 月曜 10:00 は、金曜の 1 時間と月曜の 1 時間だけ
-    fri = datetime(2026, 9, 25, 17, 0, tzinfo=tz)
-    mon = datetime(2026, 9, 28, 10, 0, tzinfo=tz)
-    assert business_minutes(fri, mon, sla) == 120
-    # 夜間に届いた件は、翌朝 9:00 から数え始める
-    night = datetime(2026, 9, 28, 22, 0, tzinfo=tz)
-    assert business_minutes(night, datetime(2026, 9, 29, 9, 30, tzinfo=tz), sla) == 30
-    # 休業日は数えない
-    holiday = sla.model_copy(update={"holidays": ["2026-09-28"]})
-    assert business_minutes(fri, mon, holiday) == 60
-    assert minutes_left(fri.isoformat(), mon, sla) == 9 * 60 - 120
-
-
-def test_sla_settings_validation() -> None:
-    import pytest
-
-    from jevlab.ops.models import SlaSettings
-
-    with pytest.raises(ValueError):
-        SlaSettings(start="18:00", end="09:00")
-    with pytest.raises(ValueError):
-        SlaSettings(timezone="Mars/Olympus")
-    with pytest.raises(ValueError):
-        SlaSettings(days=[])
-
-
 def test_seen_messages_are_pruned_after_30_days(tmp_path: Path) -> None:
     store = Store(tmp_path / "ops.db")
     old = datetime(2026, 1, 1, tzinfo=UTC)
@@ -312,18 +270,6 @@ def test_miss_summary_suggests_threshold_and_extra_reviews() -> None:
     # いまの閾値で足りていれば上げない
     assert misses.suggest([0.9, 0.8], 1.0, 0.5) == 0.5
     assert misses.suggest([], 0.8, 0.5) is None
-
-
-def test_refund_priority_counts_only_when_refund_is_mentioned() -> None:
-    refund = AnswerView(
-        type="score", prediction=1, value=1.0, confidence=0.5, probabilities={"0": 0.3, "1": 0.4, "2": 0.3}
-    )
-    mentioned = AnswerView(type="noul", prediction=True, value=0.9)
-    silent = AnswerView(type="noul", prediction=False, value=0.1)
-    assert priority_parts({"refund": refund, "refund_mentioned": mentioned})["refund"] == 0.5
-    assert priority_parts({"refund": refund, "refund_mentioned": silent})["refund"] == 0.0
-    # ゲートの問いがない以前の件は、これまでどおり返金度を使う
-    assert priority_parts({"refund": refund})["refund"] == 0.5
 
 
 def test_confident_thanks_is_auto_closed_even_with_urgency_or_frustration() -> None:
