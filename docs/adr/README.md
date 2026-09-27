@@ -11,8 +11,8 @@
 | [0003](0003-sqlite-store-async-worker.md) | 保存は SQLite、処理は同じプロセスの非同期ワーカーで行う | 採用 |
 | [0004](0004-threshold-tuning-not-finetuning.md) | 精度は学習ではなく閾値の調整で上げる | 採用 |
 | [0005](0005-candidate-selection-extraction.md) | 項目の抽出は「生成」ではなく「候補から選ばせる」 | 採用 |
-| [0006](0006-priority-in-code.md) | 優先度は観点ごとに判定し、重み付けはコードと画面で行う | 採用 |
-| [0007](0007-human-in-the-loop-queues.md) | 人の確認は目的別の 3 つの待ち行列と、抜き取り確認で行う | 採用 |
+| [0006](0006-priority-in-code.md) | 優先度は観点ごとに判定し、重み付けはコードと画面で行う | 廃止（0030） |
+| [0007](0007-human-in-the-loop-queues.md) | 人の確認は目的別の 3 つの待ち行列と、抜き取り確認で行う | 採用（抜き取りは 0030 で廃止） |
 | [0008](0008-assignee-auto-assign-threshold.md) | 担当者は確信度が高いときだけ自動で割り当て、人の割り当てを例として学ばせる | 採用（閾値は確率で判定。→ 0017。届かないときは仮で割り当て → 0025） |
 | [0009](0009-claude-cli-generator.md) | 文章の生成は、生成器の型の裏で claude -p（サブスク枠）を使う | 採用 |
 | [0010](0010-server-side-pii-draft.md) | 個人情報の確認の編集は、サーバ側に下書きとして保存する | 採用 |
@@ -23,7 +23,7 @@
 | [0015](0015-import-existing-inquiries.md) | 既存の問い合わせのファイルを取り込み、過去分で導入前に試算する | 採用 |
 | [0016](0016-guard-rules-only-mode.md) | 個人情報のガードに「規則だけ」のモードを用意する（Kev の ON/OFF） | 採用 |
 | [0017](0017-confidence-semantics.md) | 確信度は Jev の公式の定義で扱い、判断が割れた件は人に回す | 採用 |
-| [0018](0018-business-hours-sla-single-reminder.md) | 対応目安は営業時間で数え、担当未定の知らせは 1 件 1 回にする | 採用 |
+| [0018](0018-business-hours-sla-single-reminder.md) | 対応目安は営業時間で数え、担当未定の知らせは 1 件 1 回にする | 廃止（0030） |
 | [0019](0019-kev-reference-for-blocked-items.md) | ブロックした件には、Kev の参考の判定を添える | 採用 |
 | [0020](0020-measure-guard-with-reviews-and-miss-reports.md) | ガードの精度は人の確認の結果と検知漏れの報告で測る | 採用 |
 | [0021](0021-sns-accounts-as-pii.md) | SNS のアカウント名とプロフィールの URL を個人情報として扱う | 採用 |
@@ -35,6 +35,7 @@
 | [0027](0027-editable-categories.md) | 分類と振り分け先のチャンネルを設定で編集できるようにする | 採用 |
 | [0028](0028-tools-no-masking-by-default.md) | ツールは既定で伏せない。ローカルの個人情報チェックを任意で使う | 採用 |
 | [0029](0029-route-order-table.md) | 仕分けの順番を 1 つの表にまとめ、行ごとにテストで固定する | 採用 |
+| [0030](0030-user-screens-and-admin.md) | 利用者の画面を 4 つに絞り、細かい設定と試験の機能は管理画面に移す | 採用 |
 
 ## 運用のきまり
 

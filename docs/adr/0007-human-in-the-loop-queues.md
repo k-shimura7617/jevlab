@@ -1,6 +1,6 @@
 # 0007. 人の確認は目的別の 3 つの待ち行列と、抜き取り確認で行う
 
-- 状態: 採用
+- 状態: 採用（抜き取り確認は [ADR-0030](0030-user-screens-and-admin.md) で廃止）
 - 日付: 2026-09-26
 - 関連: [0004](0004-threshold-tuning-not-finetuning.md)
 
