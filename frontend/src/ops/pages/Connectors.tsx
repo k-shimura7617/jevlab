@@ -497,9 +497,9 @@ function FileImport() {
           <p className="muted small">
             {backfill ? (
               <>
-                目的: 過去の分類と Jev の判定を比べ、自動で振り分ける閾値を決める（閾値の調整 →「想定ラベル・過去の分類」。分類あり {labeled} 件）。Jev の精度は上がりません。
+                過去分と Jev の判定を比べて閾値を決める（課金あり）。Slack・人には回さない。
                 <br />
-                Jev で判定（課金あり）して、Slack・人の対応には回さず完了にする
+                分類あり {labeled} 件
               </>
             ) : (
               '通常の流れ（個人情報の確認・振り分け・Slack）に乗せる'
