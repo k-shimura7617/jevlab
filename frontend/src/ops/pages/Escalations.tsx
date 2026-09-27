@@ -1,11 +1,12 @@
-import { useCallback, useEffect, useState } from 'react'
-import { useNavigate, useSearchParams } from 'react-router'
+import { useEffect, useState } from 'react'
+import { useNavigate } from 'react-router'
 import { errorMessage } from '../../api'
 import { Page, useTitle } from '../../shell'
 import { ops, type Item } from '../api'
 import { BulkBar, CheckRow, Empty, ItemRow, WeightSliders } from '../components'
 import { pct } from '../../format'
 import { elapsedLabel, staffName } from '../format'
+import { matchesWho, useAssigneeFilter } from '../assigneeFilter'
 import { ItemPanel } from '../ItemPanel'
 import { useNow, useOps, usePolling } from '../state'
 import { sortItems, useWeights } from './Review'
@@ -135,20 +136,19 @@ function Handling({ item, onDone }: { item: Item; onDone: () => void }) {
 export function Escalations() {
   useTitle('エスカレーション')
   const { meta, refresh, settings } = useOps()
-  const [params, setParams] = useSearchParams()
-  const [mine, setMine] = useState<string>('all')
   const [category, setCategory] = useState<string>('all')
   const [weights, setWeights, weightError] = useWeights()
   const list = usePolling(() => ops.items(['escalated']))
+  // Slack のリンクで開いたときは、その件の担当者で絞り、同じ担当のほかの件も続けて片づけられるようにする
+  const { id: wanted, who: mine, select, setWho: setMine } = useAssigneeFilter(list.data)
   const all = list.data ?? []
   const staff = settings?.staff ?? []
   const filtered = all.filter(
     (i) =>
-      (mine === 'all' || (mine === 'none' ? !i.assignee : i.assignee === mine)) &&
+      matchesWho(i, mine) &&
       (category === 'all' || i.category === category),
   )
   const items = sortItems(filtered, 'priority', weights)
-  const wanted = params.get('id')
   // リンク（Slack など）で開いた件が、もうエスカレーション中でない（完了など）ときは、受付箱でその件を開く
   const gone = list.data !== null && wanted !== null && !all.some((i) => i.id === wanted)
   const navigate = useNavigate()
@@ -156,7 +156,6 @@ export function Escalations() {
     if (gone && wanted) navigate(`/ops/inbox?id=${encodeURIComponent(wanted)}`, { replace: true })
   }, [gone, wanted, navigate])
   const current = items.find((i) => i.id === wanted) ?? items[0]
-  const select = useCallback((id: string) => setParams({ id }, { replace: true }), [setParams])
   // 表示した件を URL に固定する（新着で優先度順が変わっても、書きかけのメモが別の件に切り替わらないように）
   useEffect(() => {
     if (!gone && current && current.id !== wanted) select(current.id)
