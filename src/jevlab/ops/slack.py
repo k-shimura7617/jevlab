@@ -60,7 +60,7 @@ _MAX_BACKOFF_S: Final = 60.0
 # 対応完了の印（親の投稿に付けるリアクション）
 DONE_REACTION: Final = "white_check_mark"
 # 返信のいらない件を自動で完了にしたときに、スレッドに書く文
-AUTO_CLOSE_TEXT: Final = "返信不要のため、自動で対応完了にしました。"
+AUTO_CLOSE_TEXT: Final = "対応不要のため完了にしました。"
 
 State = Literal["unconfigured", "off", "connecting", "on", "error"]
 
