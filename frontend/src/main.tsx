@@ -6,17 +6,19 @@ import { AppPage } from './pages/AppPage'
 import { Dashboard } from './pages/Dashboard'
 import { RunPage } from './pages/RunPage'
 import { Channels } from './ops/pages/Channels'
-import { Connectors } from './ops/pages/Connectors'
+import { Connectors, SlackSettings } from './ops/pages/Connectors'
 import { Escalations } from './ops/pages/Escalations'
 import { Inbox } from './ops/pages/Inbox'
 import { ItemPage } from './ops/pages/ItemPage'
-import { OpsHome } from './ops/pages/OpsHome'
+import { OpsHome } from './ops/pages/Home'
+import { AdminHome } from './ops/pages/OpsHome'
 import { AuditLog } from './ops/pages/AuditLog'
-import { OpsSettings } from './ops/pages/OpsSettings'
+import { AdminSettings, OpsSettings } from './ops/pages/OpsSettings'
 import { PiiReview } from './ops/pages/PiiReview'
 import { Review } from './ops/pages/Review'
 import { Staff } from './ops/pages/Staff'
-import { Tuning } from './ops/pages/Tuning'
+import { AdminPii, Tuning } from './ops/pages/Tuning'
+import { WaitingRedirect } from './ops/tabs'
 import { OpsProvider } from './ops/state'
 import { Page, ShellProvider } from './shell'
 import { ContractPage } from './tools/ContractPage'
@@ -30,6 +32,7 @@ import './tools/tools.css'
 function sectionCrumb(pathname: string): { label: string; to?: string } {
   if (pathname.startsWith('/eval')) return { label: '評価ダッシュボード', to: '/eval' }
   if (pathname.startsWith('/tools')) return { label: 'ツール' }
+  if (pathname.startsWith('/admin')) return { label: '管理', to: '/admin' }
   return { label: '運用', to: '/ops' }
 }
 
@@ -89,12 +92,22 @@ const router = createBrowserRouter([
           { path: '/ops/pii', element: <PiiReview /> },
           { path: '/ops/review', element: <Review /> },
           { path: '/ops/escalations', element: <Escalations /> },
-          { path: '/ops/channels', element: <Channels /> },
-          { path: '/ops/connectors', element: <Connectors /> },
+          { path: '/ops/waiting', element: <WaitingRedirect /> },
           { path: '/ops/settings', element: <OpsSettings /> },
-          { path: '/ops/audit', element: <AuditLog /> },
+          { path: '/ops/settings/slack', element: <SlackSettings /> },
           { path: '/ops/tuning', element: <Tuning /> },
           { path: '/ops/staff', element: <Staff /> },
+          // 管理（開発側）。利用者のメニューには出さない
+          { path: '/admin', element: <AdminHome /> },
+          { path: '/admin/settings', element: <AdminSettings /> },
+          { path: '/admin/pii', element: <AdminPii /> },
+          { path: '/admin/connectors', element: <Connectors /> },
+          { path: '/admin/channels', element: <Channels /> },
+          { path: '/admin/audit', element: <AuditLog /> },
+          // 以前の URL を移す（ブックマークを壊さないため）
+          { path: '/ops/channels', element: <Navigate replace to="/admin/channels" /> },
+          { path: '/ops/connectors', element: <Navigate replace to="/admin/connectors" /> },
+          { path: '/ops/audit', element: <Navigate replace to="/admin/audit" /> },
           { path: '/tools/tone', element: <TonePage /> },
           { path: '/tools/contract', element: <ContractPage /> },
           { path: '/tools/reply', element: <ReplyPage /> },

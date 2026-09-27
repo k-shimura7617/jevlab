@@ -1,0 +1,45 @@
+import { Link } from 'react-router'
+import { Page, useTitle } from '../../shell'
+import { useOps } from '../state'
+import { KevDownBanner } from './OpsHome'
+
+/** 運用の入口。残っている件の数と、片づける画面へのリンクだけを出す。 */
+export function OpsHome() {
+  useTitle('運用')
+  const { overview, overviewError } = useOps()
+  const c = overview?.counts
+  const rows = c
+    ? [
+        { label: '個人情報の確認', n: c.pii_review, to: '/ops/pii' },
+        { label: '分類の確認', n: c.review, to: '/ops/review' },
+        { label: 'エスカレーション', n: c.escalated, to: '/ops/escalations' },
+        { label: '担当に回した件（未完了）', n: c.routed, to: '/ops/inbox' },
+        { label: 'エラー', n: c.error, to: '/ops/inbox' },
+      ].filter((r) => r.n > 0)
+    : []
+  const total = rows.reduce((s, r) => s + r.n, 0)
+  return (
+    <Page crumbs={[{ label: '運用' }]}>
+      <KevDownBanner />
+      {overviewError && <div className="error">状態を取得できません: {overviewError}</div>}
+      {c && (
+        <section className="panel home" data-testid="home">
+          <h1>{total ? `残り ${total} 件` : '残りはありません'}</h1>
+          <ul className="home-rows">
+            {rows.map((r) => (
+              <li key={r.label}>
+                <Link to={r.to}>
+                  <span>{r.label}</span>
+                  <strong>{r.n}</strong>
+                </Link>
+              </li>
+            ))}
+          </ul>
+          <Link className="small" to="/ops/inbox">
+            受付箱を開く
+          </Link>
+        </section>
+      )}
+    </Page>
+  )
+}

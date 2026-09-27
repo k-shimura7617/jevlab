@@ -348,6 +348,8 @@ export interface TuningReport {
   n: number
   overall: Curve
   by_label: Curve[]
+  // 混同行列（予測した分類 → 正解の分類 → 件数）
+  confusion: Record<string, Record<string, number>>
 }
 
 export interface ImportRow {

@@ -223,6 +223,17 @@ async def ops_pages(path: str) -> FileResponse:
     return _spa()
 
 
+# 管理（開発側）の画面
+@app.get("/admin")
+async def admin_page() -> FileResponse:
+    return _spa()
+
+
+@app.get("/admin/{path:path}")
+async def admin_pages(path: str) -> FileResponse:
+    return _spa()
+
+
 async def _target_status(request: Request, t: target.Target) -> TargetStatus:
     backend: Backend | None = request.app.state.backends.get(t)
     ledger = backend.ledger if backend else Ledger.for_target(t)

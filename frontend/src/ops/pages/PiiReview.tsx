@@ -3,6 +3,7 @@ import { Link, useSearchParams } from 'react-router'
 import { errorMessage } from '../../api'
 import { pct } from '../../format'
 import { Page, useTitle } from '../../shell'
+import { QueueTabs } from '../tabs'
 import { ops, type Item, type PiiAction, type PiiType, type Span } from '../api'
 import { BulkBar, CheckRow, Empty, ItemRow, KevQueueNote } from '../components'
 import { ACTION_LABELS, PII_FLAG_LABELS, PII_FLAG_NOTES, safeToBulk } from '../format'
@@ -236,9 +237,6 @@ function Editor({ item, onDone, enqueue }: { item: Item; onDone: (id: string) =>
             </button>
           </>
         )}
-        <Link className="small" to="/ops/settings#guard">
-          方針を変える
-        </Link>
       </div>
       {submitError && (
         <div className="error small" role="alert" data-testid="pii-submit-error">
@@ -374,7 +372,8 @@ export function PiiReview() {
       })
   }
   return (
-    <Page wide crumbs={[{ label: '運用', to: '/ops' }, { label: '個人情報の確認' }]}>
+    <Page wide crumbs={[{ label: '運用', to: '/ops' }, { label: '対応待ち' }, { label: '個人情報の確認' }]}>
+      <QueueTabs />
       <div className="panel-head">
         <h1>個人情報の確認</h1>
         <KevQueueNote queue={overview?.kev_queue} available={overview?.kev?.available ?? true} />

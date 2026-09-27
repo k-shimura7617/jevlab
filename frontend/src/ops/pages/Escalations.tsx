@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 import { useNavigate } from 'react-router'
 import { errorMessage } from '../../api'
 import { Page, useTitle } from '../../shell'
+import { QueueTabs } from '../tabs'
 import { ops, type Item } from '../api'
 import { BulkBar, CheckRow, Empty, ItemRow } from '../components'
 import { pct } from '../../format'
@@ -240,7 +241,8 @@ export function Escalations() {
       })
   }
   return (
-    <Page wide crumbs={[{ label: '運用', to: '/ops' }, { label: 'エスカレーション' }]}>
+    <Page wide crumbs={[{ label: '運用', to: '/ops' }, { label: '対応待ち' }, { label: 'エスカレーション' }]}>
+      <QueueTabs />
       <div className="panel-head">
         <h1>エスカレーション</h1>
       </div>

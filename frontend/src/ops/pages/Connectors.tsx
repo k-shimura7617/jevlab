@@ -7,7 +7,7 @@ import { guessCategory, guessMapping, MAPPED_FIELDS, SAMPLE_CSV, toIsoDate, type
 import { useAutoSave } from '../autosave'
 import { SaveState } from '../components'
 import { useOps, usePolling } from '../state'
-import { FoldClose } from '../../components/fold'
+import { AdminTabs, SettingsTabs } from '../tabs'
 
 const CONNECTORS: { id: Channel; name: string; icon: string; real: string; desc: string }[] = [
   {
@@ -47,7 +47,7 @@ function ConnectorCards() {
                 {c.icon}
               </span>
               <strong>{c.name}</strong>
-              <span className={`conn-state${on ? ' on' : ''}`}>{on ? '接続済み（デモ）' : '切断'}</span>
+              <span className={`conn-state${on ? ' on' : ''}`}>{on ? '接続済み' : '切断'}</span>
             </div>
             <p className="small">{c.desc}</p>
             <p className="muted small">{c.real}</p>
@@ -142,7 +142,6 @@ function SlackPanel() {
   const receiving = d.connectors.slack ?? false
   return (
     <section className="panel" data-testid="slack" {...auto.handlers}>
-      <h2>Slack</h2>
       {status.error && <div className="error small">{status.error}</div>}
       {st && (
         <div className="slack-status">
@@ -162,8 +161,6 @@ function SlackPanel() {
       )}
       {st?.outbound.last_error && <div className="error small">送信: {st.outbound.last_error}</div>}
       {st?.inbound.last_error && <div className="error small">受信: {st.inbound.last_error}</div>}
-      <details className="slack-settings">
-      <summary>設定（送信・受信・呼び出し・チャンネル）</summary>
       <div className="form-grid">
         <label htmlFor="slack-out">送信</label>
         <label className="small">
@@ -239,15 +236,34 @@ function SlackPanel() {
       </div>
       <p className="muted small">お問い合わせ窓口（元の本文）は流しません。</p>
       <SaveState status={auto.status} error={auto.error} />
-      {st?.bot_token && (
-        <div className="slack-purge">
-          <h3>投稿の削除</h3>
-          <SlackPurge purge={st.purge} onStarted={status.reload} />
-        </div>
-      )}
-        <FoldClose />
-      </details>
     </section>
+  )
+}
+
+/** 管理（開発側）: Slack に流した投稿の全削除。 */
+function SlackPurgePanel() {
+  const status = usePolling(ops.slack, 3000)
+  const st = status.data
+  if (!st?.bot_token) return null
+  return (
+    <section className="panel slack-purge">
+      <h2>Slack の投稿の削除</h2>
+      <SlackPurge purge={st.purge} onStarted={status.reload} />
+    </section>
+  )
+}
+
+/** 設定: Slack（利用者が触る）。 */
+export function SlackSettings() {
+  useTitle('Slack')
+  return (
+    <Page crumbs={[{ label: '運用', to: '/ops' }, { label: '設定' }]}>
+      <SettingsTabs />
+      <div className="panel-head">
+        <h1>Slack</h1>
+      </div>
+      <SlackPanel />
+    </Page>
   )
 }
 
@@ -500,14 +516,15 @@ export function Connectors() {
   useTitle('コネクタ')
   const origin = window.location.origin
   return (
-    <Page wide crumbs={[{ label: '運用', to: '/ops' }, { label: 'コネクタ' }]}>
+    <Page wide crumbs={[{ label: '管理', to: '/admin' }, { label: 'コネクタ' }]}>
+      <AdminTabs />
       <div className="panel-head">
         <h1>コネクタ</h1>
         <span className="muted small">受付箱への入り口。</span>
       </div>
       <ConnectorCards />
-      <SlackPanel />
       <FileImport />
+      <SlackPurgePanel />
       <section className="panel">
         <h2>API から登録する</h2>
         <p className="muted small">API コネクタが接続中なら、次の形で登録できます。</p>
