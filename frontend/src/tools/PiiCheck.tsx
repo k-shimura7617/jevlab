@@ -4,14 +4,14 @@ import { tools, type PiiCheckResult } from './api'
 
 /**
  * ツールの入力をローカルで調べるボタン（規則と、設定で使うときだけ Kev。Jev・Claude には送らない）。
- * 結果はモーダルで出す（入力欄の大きさ・位置を変えない）。「伏せる」で入力欄を【種類】に置き換える。
+ * 結果はモーダルで出す（入力欄の大きさ・位置を変えない）。「個人情報マスク」で入力欄を【種類】に置き換える。
  */
 export function PiiCheckButton({ text, onMask, label }: { text: string; onMask: (masked: string) => void; label: string }) {
   const [open, setOpen] = useState(false)
   return (
     <>
       <button type="button" className="secondary small pii-check-btn" disabled={!text.trim()} onClick={() => setOpen(true)}>
-        個人情報チェック（ローカル）
+        個人情報チェック
       </button>
       {open && (
         <PiiCheckModal
@@ -51,7 +51,6 @@ function PiiCheckModal({ text, label, onClose, onMask }: { text: string; label: 
         {!result && !error && <p className="muted small">確認中…</p>}
         {result && (
           <>
-            <p className="muted small">{result.model_name ? `規則と ${result.model_name} で確認。` : '規則だけで確認（Kev は使っていない）。'}</p>
             <div className="pii-check-text">{highlight(text, found.map((s) => [s.start, s.end]))}</div>
             {found.length ? (
               <ul className="pii-check-list small">
@@ -71,7 +70,7 @@ function PiiCheckModal({ text, label, onClose, onMask }: { text: string; label: 
             閉じる
           </button>
           <button type="button" disabled={!result || found.length === 0} onClick={() => result && onMask(result.masked_text)}>
-            伏せる
+            個人情報マスク
           </button>
         </div>
       </div>
