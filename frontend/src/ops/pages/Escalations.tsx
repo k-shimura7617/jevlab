@@ -3,21 +3,12 @@ import { useNavigate } from 'react-router'
 import { errorMessage } from '../../api'
 import { Page, useTitle } from '../../shell'
 import { ops, type Item } from '../api'
-import { BulkBar, CheckRow, Empty, ItemRow, WeightSliders } from '../components'
+import { BulkBar, CheckRow, Empty, ItemRow } from '../components'
 import { pct } from '../../format'
-import { elapsedLabel, staffName } from '../format'
+import { staffName } from '../format'
 import { matchesWho, useAssigneeFilter } from '../assigneeFilter'
 import { ItemPanel } from '../ItemPanel'
-import { useNow, useOps, usePolling } from '../state'
-import { sortItems, useWeights } from './Review'
-import { FoldClose } from '../../components/fold'
-
-// 対応の目安（受信からの経過）。これを超えたら赤く表示する
-/** 対応目安までの残り（営業時間）を短く書く。 */
-function slaText(left: number): string {
-  if (left < 0) return '超過'
-  return left >= 60 ? `残り ${Math.floor(left / 60)} 時間（営業時間）` : `残り ${Math.max(1, Math.floor(left))} 分（営業時間）`
-}
+import { useOps, usePolling } from '../state'
 
 function Handling({ item, onDone }: { item: Item; onDone: () => void }) {
   const { meta, settings } = useOps()
@@ -147,7 +138,6 @@ export function Escalations() {
   useTitle('エスカレーション')
   const { meta, refresh, settings } = useOps()
   const [category, setCategory] = useState<string>('all')
-  const [weights, setWeights, weightError] = useWeights()
   const list = usePolling(() => ops.items(['escalated']))
   // Slack のリンクで開いたときは、その件の担当者で絞り、同じ担当のほかの件も続けて片づけられるようにする
   const { id: wanted, who: mine, select, setWho: setMine } = useAssigneeFilter(list.data)
@@ -158,7 +148,8 @@ export function Escalations() {
       matchesWho(i, mine) &&
       (category === 'all' || i.category === category),
   )
-  const items = sortItems(filtered, 'priority', weights)
+  // 届いた順（古い順）に並べる
+  const items = [...filtered].sort((a, b) => a.seq - b.seq)
   // 直前に並んでいた順（この画面で完了した件の、次の件を開くため）
   const [shownOrder, setShownOrder] = useState<string[]>([])
   const missing = list.data !== null && wanted !== null && !all.some((i) => i.id === wanted)
@@ -180,7 +171,6 @@ export function Escalations() {
   useEffect(() => {
     if (!gone && current && current.id !== wanted) select(current.id)
   }, [gone, current, wanted, select])
-  const now = useNow()
   // 担当者を選んでいないとき: 選んだ件の集合。選んでいるとき: その人の担当から「外す」件と、新しく「足す」件を別々に持つ
   // （その人の担当の件は、外すと決めない限り選ばれている扱い。後から届いた件も選ばれた状態で並ぶ）
   const [checked, setChecked] = useState<Set<string>>(new Set())
@@ -253,9 +243,6 @@ export function Escalations() {
     <Page wide crumbs={[{ label: '運用', to: '/ops' }, { label: 'エスカレーション' }]}>
       <div className="panel-head">
         <h1>エスカレーション</h1>
-        <span className="muted small">
-          対応目安 {settings?.sla.hours ?? 9} 営業時間
-        </span>
       </div>
       <div className="queue-layout">
         <section className="panel list-pane">
@@ -311,30 +298,18 @@ export function Escalations() {
               {bulkError}
             </div>
           )}
-          <details className="weights-box">
-            <summary className="small">優先度の重み（並び順）</summary>
-            <WeightSliders weights={weights} onChange={setWeights} />
-            {weightError && <div className="error small">{weightError}</div>}
-            <FoldClose />
-          </details>
           {list.error && <div className="error small">{list.error}</div>}
           <div className="item-list" data-testid="escalation-list">
             {shown.map((i) => {
-              const left = i.sla_left_min ?? 0
-              const sla = left < 0 ? 'late' : left <= 60 ? 'soon' : 'ok'
               return (
                 <CheckRow key={i.id} checked={isChecked(i)} onCheck={(v) => toggle(i, v)} label={`${i.id}「${i.subject || i.body.slice(0, 20)}」を一括の対象にする`}>
                   <button type="button" className="row-button" aria-current={i.id === current?.id ? 'true' : undefined} onClick={() => select(i.id)}>
                     <ItemRow
                       item={i}
                       meta={meta}
-                      weights={weights}
                       active={i.id === current?.id}
                       extra={
                         <>
-                          <span className={`sla sla-${sla}`} title={`受信から ${elapsedLabel(i.received_at, now)}`}>
-                            ⏱ {slaText(left)}
-                          </span>
                           <span className="assignee">
                             {i.assignee ? (
                               staffName(staff, i.assignee)

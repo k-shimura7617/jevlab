@@ -349,7 +349,6 @@ export function OpsHome() {
             value={acc(overview.final_accuracy)}
             sub={`モデルの予測だけなら ${acc(overview.model_accuracy)}（${overview.final_accuracy.n}件）`}
           />
-          <Kpi label="抜き取り確認の待ち" value={overview.audit_pending} />
           <Kpi label="外部に送らなかった件" value={f.blocked + f.kev_only} sub={`ブロック ${f.blocked} ／ Kev で完結 ${f.kev_only}`} />
           <Kpi label="コスト（受付箱の分）" value={costText(overview.cost_usd)} />
         </section>

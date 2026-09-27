@@ -47,8 +47,6 @@ export interface Item {
   pii_decision: 'none' | 'masked' | 'blocked' | 'allowed' | 'skipped' | null
   // 個人情報の確認で人が編集中の内容（サーバに保存した下書き）。まとめて処理するときもこれを使う
   pii_draft: Span[] | null
-  // エスカレーションの対応目安までの残り（営業時間の分。過ぎていれば負）
-  sla_left_min: number | null
   // 個人情報のため Jev に送らなかった件の、ローカル（Kev）での参考の判定
   kev_reference: {
     category: string | null
@@ -88,7 +86,6 @@ export interface Item {
   closed_at: string | null
   // 返信のいらない分類として自動で完了にした（人は見ていない）
   auto_closed: boolean
-  priority: Record<string, number>
   // 個人情報の確認に回った理由（確認待ちの件だけ）
   pii_flags: PiiFlag[]
 }
@@ -240,7 +237,6 @@ export interface Overview {
   final_accuracy: Accuracy
   model_accuracy: Accuracy
   cost_usd: number
-  audit_pending: number
   simulator: SimulatorState
   recent: OpsEvent[]
   // 設定が Kev を使うときだけ入る
@@ -262,9 +258,6 @@ export interface SlackSettings {
   dispatcher: string | null
   // 投稿に付ける画面へのリンクの起点
   app_url: string
-  // 担当が決まらないまま対応目安が近づいたら 1 回だけ知らせる
-  reminder: boolean
-  reminder_before_min: number
 }
 
 export type SlackState = 'unconfigured' | 'off' | 'connecting' | 'on' | 'error'
@@ -325,14 +318,10 @@ export interface Settings {
     insufficient_at: number
   }
   kev_first: { enabled: boolean; threshold: number }
-  audit_rate: number
   // 以前に保存した設定には slack がないことがある（ないときは切断として扱う）
   connectors: Partial<Record<Channel, boolean>>
   slack: SlackSettings
-  // エスカレーションの対応目安（営業時間で数える）
-  sla: { hours: number; days: number[]; start: string; end: string; timezone: string; holidays: string[] }
   simulator: { playing: boolean; interval_s: number; cursor: number; fast: boolean }
-  priority_weights: Record<string, number>
   staff: StaffMember[]
   assign: { auto: boolean; threshold: number; use_examples: boolean; max_examples: number; scope_draft_min: number }
 }

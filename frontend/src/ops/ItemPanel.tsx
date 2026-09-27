@@ -5,8 +5,8 @@ import { errorMessage, type QuestionInfo } from '../api'
 import { ProbabilityRows } from '../components/report'
 import { pct } from '../format'
 import { ops, type Item, type Meta, type PiiType, type Status } from './api'
-import { CategoryTag, costText, FieldsList, PiiText, PriorityBadge, StatusChip, Timeline } from './components'
-import { CHANNEL_SHORT, PRIORITY_LABELS, titleOf } from './format'
+import { CategoryTag, costText, FieldsList, PiiText, StatusChip, Timeline } from './components'
+import { CHANNEL_SHORT, titleOf } from './format'
 import { canMail, replyHref } from './mail'
 import { SelectableText } from './SelectableText'
 import { POLL_MS, useOps, usePolling } from './state'
@@ -83,16 +83,6 @@ function QuickActions({
       {item.status === 'review' && meta && (
         <>
           <span className="muted small">分類を確定:</span>
-          {Object.entries(meta.categories).map(([k, label]) => (
-            <button key={k} type="button" className={k === item.category ? undefined : 'secondary'} disabled={busy} onClick={() => run(() => ops.decide(item.id, k))}>
-              {label}
-            </button>
-          ))}
-        </>
-      )}
-      {item.status === 'routed' && item.audit && item.audit_result === null && meta && (
-        <>
-          <span className="muted small">抜き取り確認（正しい分類は？）:</span>
           {Object.entries(meta.categories).map(([k, label]) => (
             <button key={k} type="button" className={k === item.category ? undefined : 'secondary'} disabled={busy} onClick={() => run(() => ops.decide(item.id, k))}>
               {label}
@@ -251,7 +241,7 @@ function MissReport({ item, labels, onDone }: { item: Item; labels: Record<strin
 }
 
 export function ItemPanel({ id, onChanged, here }: { id: string; onChanged?: () => void; here?: 'pii' | 'escalations' }) {
-  const { meta, settings, refresh } = useOps()
+  const { meta, refresh } = useOps()
   const detail = usePolling(() => ops.item(id), POLL_MS)
   const [view, setView] = useState<'original' | 'sent'>('original')
   const { reload } = detail
@@ -268,7 +258,6 @@ export function ItemPanel({ id, onChanged, here }: { id: string; onChanged?: () 
     </div>
   )
   const labels: Record<string, string> = meta?.pii_types ?? {}
-  const weights = settings?.priority_weights ?? {}
   return (
     <article className={`item-panel${stale ? ' stale' : ''}`} data-testid="item-panel" data-status={item.status} aria-busy={stale}>
       <header>
@@ -276,10 +265,8 @@ export function ItemPanel({ id, onChanged, here }: { id: string; onChanged?: () 
           <span className="muted">{item.id}</span>
           <StatusChip status={item.status} />
           <CategoryTag meta={meta} item={item} />
-          <PriorityBadge item={item} weights={weights} />
           {item.backfill && <span className="audit-flag">試算用</span>}
           {item.auto_closed && <span className="audit-flag">自動で完了</span>}
-          {item.audit && <span className="audit-flag">抜き取り{item.audit_result ? `（${item.audit_result === 'ok' ? '問題なし' : '修正'}）` : ''}</span>}
         </div>
         <h2>{titleOf(item)}</h2>
         <div className="muted small">
@@ -331,11 +318,6 @@ export function ItemPanel({ id, onChanged, here }: { id: string; onChanged?: () 
       <section>
         <h3>判定</h3>
         <Judgement item={item} meta={meta} />
-        {Object.keys(item.priority).length > 0 && (
-          <p className="muted small">
-            優先度の内訳: {Object.entries(item.priority).map(([k, v]) => `${PRIORITY_LABELS[k] ?? k} ${pct(v, 0)}`).join(' ／ ')}
-          </p>
-        )}
       </section>
 
       {(item.assignee || item.notes.length > 0) && (

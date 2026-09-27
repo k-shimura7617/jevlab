@@ -44,13 +44,6 @@ export const ACTION_NOTES: Record<PiiAction, string> = {
   block: 'Jev には送らない',
 }
 
-export const PRIORITY_LABELS: Record<string, string> = {
-  frustration: '不満度',
-  urgent: '緊急度',
-  refund: '返金・補償',
-  publicity: '公になる恐れ',
-}
-
 // 既存のメール仕分けの選択肢の並び（format.ts の optionColor と同じ色の割り当て）
 const CATEGORY_ORDER = ['inquiry', 'complaint', 'thanks']
 export const categoryColor = (key: string | null): string => {
@@ -59,17 +52,6 @@ export const categoryColor = (key: string | null): string => {
   const i = CATEGORY_ORDER.indexOf(key)
   return i < 0 ? 'var(--c-other)' : `var(--c${i})`
 }
-
-/** 優先度（観点ごとの値の重み付き平均、0〜1）。サーバの priority_score と同じ式。 */
-export function priorityOf(item: Item, weights: Record<string, number>): number {
-  const entries = Object.entries(weights).filter(([, w]) => w > 0)
-  const total = entries.reduce((s, [, w]) => s + w, 0)
-  if (total <= 0) return 0
-  return entries.reduce((s, [k, w]) => s + (item.priority[k] ?? 0) * w, 0) / total
-}
-
-export const priorityLevel = (p: number): 'high' | 'mid' | 'low' => (p >= 0.6 ? 'high' : p >= 0.35 ? 'mid' : 'low')
-export const PRIORITY_LEVEL_LABELS = { high: '高', mid: '中', low: '低' } as const
 
 export function relativeTime(iso: string, now: number = Date.now()): string {
   const sec = Math.max(0, Math.round((now - new Date(iso).getTime()) / 1000))

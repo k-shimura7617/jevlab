@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 from typing import Annotated, Any, Final, Literal, get_args
-from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from pydantic import BaseModel, Field, StringConstraints, field_validator, model_validator
 
@@ -289,44 +288,6 @@ class KevFirstSettings(BaseModel):
     threshold: float = Field(0.95, ge=0, le=1)
 
 
-class SlaSettings(BaseModel):
-    """エスカレーションの対応目安。営業時間だけを数える（昼休み・夜間・休日は進まない）。"""
-
-    # 対応目安（営業時間）。既定の 9 時間は、平日 9:00〜18:00 の 1 営業日
-    hours: float = Field(9.0, gt=0, le=100)
-    # 営業日（0=月 … 6=日）
-    days: list[int] = Field(default_factory=lambda: [0, 1, 2, 3, 4], max_length=7)
-    start: str = Field("09:00", pattern=r"^([01]\d|2[0-3]):[0-5]\d$")
-    end: str = Field("18:00", pattern=r"^([01]\d|2[0-3]):[0-5]\d$")
-    timezone: str = "Asia/Tokyo"
-    # 休業日（YYYY-MM-DD）。祝日などを必要な分だけ入れる
-    holidays: list[Annotated[str, StringConstraints(pattern=r"^\d{4}-\d{2}-\d{2}$")]] = Field(
-        default_factory=list, max_length=100
-    )
-
-    @field_validator("days")
-    @classmethod
-    def _check_days(cls, v: list[int]) -> list[int]:
-        if not v or any(not 0 <= d <= 6 for d in v):
-            raise ValueError("営業日は 0（月）〜 6（日）で 1 日以上選んでください")
-        return sorted(set(v))
-
-    @field_validator("timezone")
-    @classmethod
-    def _check_timezone(cls, v: str) -> str:
-        try:
-            ZoneInfo(v)
-        except (ZoneInfoNotFoundError, ValueError) as e:
-            raise ValueError(f"タイムゾーン {v!r} が見つかりません") from e
-        return v
-
-    @model_validator(mode="after")
-    def _check_hours(self) -> SlaSettings:
-        if self.start >= self.end:
-            raise ValueError("営業時間の開始は終了より前にしてください")
-        return self
-
-
 # Slack のチャンネル ID（公開 C…／非公開 G…）
 _SLACK_CHANNEL_ID = r"^[CG][A-Z0-9]{6,20}$"
 
@@ -346,9 +307,6 @@ class SlackSettings(BaseModel):
     dispatcher: str | None = None
     # 投稿に付ける画面へのリンクの起点（開発中は Vite の 5173、ビルド版なら 8000）
     app_url: str = Field("http://127.0.0.1:5173", pattern=r"^https?://\S+$", max_length=200)
-    # 担当が決まらないまま対応目安が近づいたら、振り分け担当に 1 回だけ知らせる（営業時間の分で数える）
-    reminder: bool = True
-    reminder_before_min: int = Field(60, ge=1, le=6000)
 
 
 class SimulatorSettings(BaseModel):
@@ -428,14 +386,10 @@ class Settings(BaseModel):
     guard: GuardSettings = GuardSettings()
     classify: ClassifySettings = ClassifySettings()
     kev_first: KevFirstSettings = KevFirstSettings()
-    audit_rate: float = Field(0.05, ge=0, le=1)
     # slack は既定で切断（トークンを設定し、コネクタ画面で接続してから使う）
     connectors: dict[Channel, bool] = {"mail": True, "chat": True, "csv": True, "api": True, "slack": False}
     slack: SlackSettings = SlackSettings()
-    sla: SlaSettings = SlaSettings()
     simulator: SimulatorSettings = SimulatorSettings()
-    # 優先度の重み（画面のスライダー。再判定なしで並び順だけ変わる）
-    priority_weights: dict[str, float] = {"frustration": 1.0, "urgent": 1.5, "refund": 0.8, "publicity": 1.2}
     staff: list[StaffMember] = list(DEFAULT_STAFF)
     assign: AssignSettings = AssignSettings()
 

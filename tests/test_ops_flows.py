@@ -70,9 +70,7 @@ def connect(tmp_path: Path, scripts: dict[str, Script]) -> tuple[SlackConnector,
     with_staff(conn)
     store = conn.pipeline.store
     s = store.settings()
-    store.put_settings(
-        s.model_copy(update={"audit_rate": 0.0, "guard": s.guard.model_copy(update={"use_model": False})})
-    )
+    store.put_settings(s.model_copy(update={"guard": s.guard.model_copy(update={"use_model": False})}))
 
     async def ask(
         t: object, app: str, state: object, questions: Mapping[str, oq.Question]

@@ -7,7 +7,7 @@ import base64
 import binascii
 from collections import Counter
 from collections.abc import Callable
-from datetime import UTC, date, datetime
+from datetime import date, datetime
 from typing import Annotated, Final, Literal
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response
@@ -29,7 +29,6 @@ from jevlab.ops.models import (
     MissReport,
     Post,
     Settings,
-    SlaSettings,
     Status,
 )
 from jevlab.ops.pii import ACTIONS, PII_LABELS, PII_TYPES, PiiType, Span
@@ -41,12 +40,10 @@ from jevlab.ops.pipeline import (
     KEV_CONCURRENCY,
     Pipeline,
     category_label,
-    priority_parts,
     safe_title,
 )
 from jevlab.ops.questions import FIELD_TITLES
 from jevlab.ops.simulator import demo_inbox, ingest_next
-from jevlab.ops.sla import minutes_left
 from jevlab.ops.slack import SlackConnector, SlackStatus
 from jevlab.ops.store import ItemNotFoundError
 
@@ -82,11 +79,7 @@ PiiFlag = Literal["detected", "possible_name", "possible_missed"]
 
 
 class ItemOut(Item):
-    # 優先度の観点ごとの値（0〜1）。画面で重みを掛けて並べ替える
-    priority: dict[str, float] = Field(default_factory=dict)
     pii_flags: list[PiiFlag] = Field(default_factory=list)
-    # エスカレーションの対応目安までの残り（営業時間の分。過ぎていれば負）
-    sla_left_min: float | None = None
 
 
 def pii_flags(item: Item, leftover_threshold: float) -> list[PiiFlag]:
@@ -100,14 +93,10 @@ def pii_flags(item: Item, leftover_threshold: float) -> list[PiiFlag]:
     return flags
 
 
-def _out(item: Item, leftover_threshold: float = 0.5, sla: SlaSettings | None = None) -> ItemOut:
+def _out(item: Item, leftover_threshold: float = 0.5) -> ItemOut:
     return ItemOut(
         **item.model_dump(),
-        priority=priority_parts(item.answers) if item.answers else {},
         pii_flags=pii_flags(item, leftover_threshold) if item.status == "pii_review" else [],
-        sla_left_min=minutes_left(item.received_at, datetime.now(UTC), sla)
-        if sla is not None and item.status == "escalated"
-        else None,
     )
 
 
@@ -195,7 +184,6 @@ class Overview(BaseModel):
     final_accuracy: Accuracy
     model_accuracy: Accuracy
     cost_usd: float
-    audit_pending: int
     simulator: dict[str, object]
     recent: list[Event]
     # 運用の設定が Kev を使うときだけ確認する（使わなければ None）。画面の「Kev に接続できません」に使う
@@ -263,7 +251,6 @@ async def overview(pipeline: PipelineDep) -> Overview:
         final_accuracy=_accuracy(items, final=True),
         model_accuracy=_accuracy(items, final=False),
         cost_usd=sum(i.cost_usd for i in items),
-        audit_pending=sum(1 for i in items if i.audit and i.audit_result is None and i.status == "routed"),
         simulator={**settings.simulator.model_dump(), "total": len(demo_inbox()), "fast_workers": FAST_WORKERS},
         recent=store.recent_events(40),
         kev=await _kev_health(uses) if (uses := kev_uses(settings)) else None,
@@ -295,7 +282,7 @@ async def list_items(
     limit: Annotated[int, Query(ge=1, le=2000)] = 500,
 ) -> list[ItemOut]:
     settings = pipeline.store.settings()
-    return [_out(i, settings.guard.leftover_threshold, settings.sla) for i in pipeline.store.items(status, limit)]
+    return [_out(i, settings.guard.leftover_threshold) for i in pipeline.store.items(status, limit)]
 
 
 class ItemDetail(BaseModel):
@@ -310,9 +297,7 @@ async def get_item(item_id: str, pipeline: PipelineDep) -> ItemDetail:
     except ItemNotFoundError as e:
         raise _http(e) from e
     settings = pipeline.store.settings()
-    return ItemDetail(
-        item=_out(item, settings.guard.leftover_threshold, settings.sla), events=pipeline.store.events(item_id)
-    )
+    return ItemDetail(item=_out(item, settings.guard.leftover_threshold), events=pipeline.store.events(item_id))
 
 
 @router.post("/ingest")
@@ -738,14 +723,6 @@ def _check_category_channels(settings: Settings) -> None:
 async def put_settings(settings: Settings, pipeline: PipelineDep) -> Settings:
     if settings.classify.review_threshold > settings.classify.auto_threshold:
         raise HTTPException(status_code=422, detail="確認待ちの閾値は、自動の閾値以下にしてください")
-    # 保存済みの設定を読むときは弾かない（対応目安だけ短くした古い設定でも起動できるように）。保存するときに確かめる
-    sla_min = settings.sla.hours * 60
-    if settings.slack.reminder and settings.slack.reminder_before_min >= sla_min:
-        raise HTTPException(
-            status_code=422,
-            detail=f"期限前に知らせる時間（{settings.slack.reminder_before_min} 分）は、"
-            f"対応目安（{sla_min:g} 分）より短くしてください",
-        )
     store = pipeline.store
 
     def save() -> Settings:

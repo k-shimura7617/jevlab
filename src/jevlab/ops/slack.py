@@ -39,7 +39,6 @@ from jevlab.ops.pipeline import (
     notes_lines,
 )
 from jevlab.ops.questions import FIELD_TITLES
-from jevlab.ops.sla import minutes_left
 from jevlab.ops.store import ItemNotFoundError
 
 log = logging.getLogger(__name__)
@@ -53,8 +52,6 @@ def mirrorable(settings: Settings) -> list[str]:
 # 受信した本文の上限（受付の上限に合わせる）
 MAX_BODY: Final = 4000
 _TICK_S: Final = 2.0
-# 対応目安の前の知らせを確かめる間隔
-_REMIND_EVERY_S: Final = 30.0
 # 送信に続けて失敗したときの待ち時間の上限
 _MAX_BACKOFF_S: Final = 60.0
 # 対応完了の印（親の投稿に付けるリアクション）
@@ -329,13 +326,6 @@ def post_text(post: Post, item: Item | None) -> str:
     return message_text(post)
 
 
-def left_text(minutes: float) -> str:
-    """営業時間の残りを短く書く（1 時間以上は時間、未満は分）。"""
-    if minutes >= 60:
-        return f"{int(minutes // 60)} 時間（営業時間）"
-    return f"{max(1, int(minutes))} 分（営業時間）"
-
-
 def link_text(item_id: str, settings: Settings, channel: str) -> str:
     """件を開く画面へのリンク。エスカレーションの投稿はエスカレーションの画面、それ以外は受付箱で開く。"""
     page = "escalations" if channel == ESCALATION_CHANNEL else "inbox"
@@ -431,7 +421,6 @@ class SlackConnector:
     bot_user: str | None = None
     outbound: DirectionStatus = field(default_factory=lambda: DirectionStatus(state="off"))
     inbound: DirectionStatus = field(default_factory=lambda: DirectionStatus(state="off"))
-    _next_remind: float = 0.0
     _backoff_until: float = 0.0
     _auth_retry_at: float = 0.0
     _inbound_retry_at: float = 0.0
@@ -487,7 +476,6 @@ class SlackConnector:
             return
         await self._mirror(settings)
         await self._follow(settings)
-        await self._remind(settings)
 
     # ---- 送信 ----
 
@@ -711,39 +699,6 @@ class SlackConnector:
         if event.kind == "reopen":
             return "自動の完了を取り消しました"
         return None
-
-    async def _remind(self, settings: Settings) -> None:
-        """担当が決まらないまま対応目安が近づいた件を、振り分け担当に 1 回だけ知らせる（繰り返さない）。
-
-        対応目安は営業時間で数える（昼休み・夜間・休日は進まない）。
-        """
-        s = settings.slack
-        dispatcher = settings.dispatcher_member()
-        if not (self._enabled(settings) and s.reminder and dispatcher) or self._backing_off():
-            return
-        if time.monotonic() < self._next_remind:
-            return
-        self._next_remind = time.monotonic() + _REMIND_EVERY_S
-        now = datetime.now(UTC)
-        for candidate in self.pipeline.store.items(["escalated"]):
-            if candidate.assignee or candidate.slack_reminded or not candidate.slack_ts:
-                continue
-            if minutes_left(candidate.received_at, now, settings.sla) > s.reminder_before_min:
-                continue
-            # 一覧を読んでから送るまでの間に担当が決まっていることがあるので、送る直前に読み直す
-            item = self._item(candidate.id)
-            if item is None or item.status != "escalated" or item.assignee or item.slack_reminded:
-                continue
-            left = minutes_left(item.received_at, now, settings.sla)
-            when = f"対応目安まであと {left_text(left)}です" if left > 0 else "対応目安を過ぎています"
-            text = f"{mention(dispatcher)} {when}。担当が未定です"
-            try:
-                await self._send(item.slack_channel or "", text, item.slack_ts)
-            except SlackSendError as e:
-                if self._failed(e):
-                    return
-            # 送れた（または設定の誤りで送れない）件には印を付け、二度と知らせない
-            self.pipeline.store.update(item.id, lambda i: i.model_copy(update={"slack_reminded": True}))
 
     async def _ensure_bot_user(self) -> bool:
         """ボット自身のユーザー ID を確かめる。確かめられないうちは送らない（トークンの誤りで毎周期呼ばない）。"""

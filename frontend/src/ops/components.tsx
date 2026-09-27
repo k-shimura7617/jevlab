@@ -10,10 +10,6 @@ import {
   CHANNEL_SHORT,
   CONFIDENCE_NOTE,
   DECIDER_LABELS,
-  PRIORITY_LABELS,
-  PRIORITY_LEVEL_LABELS,
-  priorityLevel,
-  priorityOf,
   clockTime,
   relativeTime,
   STATUS_LABELS,
@@ -43,28 +39,10 @@ export function CategoryTag({ meta, item, showConfidence = true }: { meta: Meta 
   )
 }
 
-export function PriorityBadge({ item, weights }: { item: Item; weights: Record<string, number> }) {
-  if (!Object.keys(item.priority).length) return null
-  const p = priorityOf(item, weights)
-  const level = priorityLevel(p)
-  const detail = Object.entries(item.priority)
-    .map(([k, v]) => `${PRIORITY_LABELS[k] ?? k} ${pct(v, 0)}`)
-    .join(' ／ ')
-  return (
-    <span className={`prio prio-${level}`} title={`優先度 ${pct(p, 0)}（${detail}）`}>
-      優先度 {PRIORITY_LEVEL_LABELS[level]}
-      <span className="prio-bar" aria-hidden>
-        <span style={{ width: pct(p) }} />
-      </span>
-    </span>
-  )
-}
-
 /** 受付箱の 1 行。 */
 export function ItemRow({
   item,
   meta,
-  weights,
   to,
   extra,
   active,
@@ -72,7 +50,6 @@ export function ItemRow({
 }: {
   item: Item
   meta: Meta | null
-  weights?: Record<string, number>
   to?: string
   extra?: ReactNode
   active?: boolean
@@ -104,7 +81,6 @@ export function ItemRow({
             個人情報あり
           </span>
         )}
-        {weights && <PriorityBadge item={item} weights={weights} />}
         {extra}
       </span>
       <span className="when muted small" title={new Date(item.received_at).toLocaleString('ja-JP')}>
@@ -194,34 +170,6 @@ export function FieldsList({ fields, meta }: { fields: Record<string, string | n
         </div>
       ))}
     </dl>
-  )
-}
-
-export function WeightSliders({
-  weights,
-  onChange,
-}: {
-  weights: Record<string, number>
-  onChange: (next: Record<string, number>) => void
-}) {
-  return (
-    <div className="weights" role="group" aria-label="優先度の重み">
-      {Object.entries(weights).map(([k, v]) => (
-        <label key={k} className="weight">
-          <span>{PRIORITY_LABELS[k] ?? k}</span>
-          <input
-            type="range"
-            min={0}
-            max={3}
-            step={0.1}
-            value={v}
-            aria-label={`${PRIORITY_LABELS[k] ?? k}の重み`}
-            onChange={(e) => onChange({ ...weights, [k]: Number(e.target.value) })}
-          />
-          <span className="num">{v.toFixed(1)}</span>
-        </label>
-      ))}
-    </div>
   )
 }
 

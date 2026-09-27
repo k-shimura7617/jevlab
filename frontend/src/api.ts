@@ -142,15 +142,12 @@ const FIELD_LABELS: Record<string, string> = {
   app_url: '画面へのリンク',
   channel_map: '投稿先',
   inbound_channels: '受信するチャンネル',
-  reminder_before_min: '知らせる時間',
-  sla_hours: '対応目安',
   candidate_threshold: '候補を個人情報とみなす確率',
   leftover_threshold: '取りこぼしを疑う確率',
   auto_threshold: '自動で振り分ける確信度',
   review_threshold: '確認待ちにする確信度',
   strong_frustration_at: '強い不満とみなす確率',
   split_margin: '僅差とみなす差',
-  audit_rate: '抜き取る割合',
   threshold: 'しきい値',
 }
 

@@ -155,7 +155,7 @@ export function Inbox() {
           <div className="item-list" data-testid="inbox-list">
             {visible.map((i) => (
               <button key={i.id} type="button" className="row-button" aria-current={i.id === selected ? 'true' : undefined} aria-label={`${i.id} ${i.subject || i.body.slice(0, 30)}`} onClick={() => select(i.id)}>
-                <ItemRow item={i} meta={meta} weights={settings?.priority_weights} active={i.id === selected} />
+                <ItemRow item={i} meta={meta} active={i.id === selected} />
               </button>
             ))}
             {list.data && visible.length === 0 && (

@@ -84,7 +84,6 @@ def test_item_without_pii_is_classified_and_routed(client: TestClient) -> None:
     assert item["decided_by"] == "mock"
     assert item["category"] in {"inquiry", "complaint", "thanks", "other"}
     assert item["first_route"] == item["status"]
-    assert set(item["priority"]) == {"frustration", "urgent", "refund", "publicity"}
     assert kinds(detail)[:3] == ["received", "guard", "guard"]
     assert "classify" in kinds(detail)
 
@@ -448,7 +447,7 @@ def test_posts_do_not_contain_pii(client: TestClient) -> None:
     assert all("090-0000-1234" not in p["text"] and "山田" not in p["text"] for p in posts)
 
 
-def test_decide_rejects_routed_items_outside_audit(client: TestClient) -> None:
+def test_decide_rejects_routed_items(client: TestClient) -> None:
     configure(
         client,
         guard__human_check=False,
@@ -457,7 +456,6 @@ def test_decide_rejects_routed_items_outside_audit(client: TestClient) -> None:
         classify__escalate_urgent=False,
         classify__escalate_strong_frustration=False,
         classify__insufficient_gate=False,
-        audit_rate=0.0,
     )
     item_id = ingest(client, "ラッピングはできますか？")
     assert settle(client, item_id)["item"]["status"] == "routed"
@@ -465,54 +463,37 @@ def test_decide_rejects_routed_items_outside_audit(client: TestClient) -> None:
 
 
 def test_routed_items_can_be_closed_and_count_as_human_checked(client: TestClient) -> None:
+    # 自動で完了にならないよう、返信不要・返信の要否を判定する分類をなくしておく
+    categories = [
+        {**c, "auto_close": False, "judge_reply": False} for c in client.get("/api/ops/settings").json()["categories"]
+    ]
     configure(
         client,
+        categories=categories,
         guard__human_check=False,
         classify__auto_threshold=0.0,
         classify__review_threshold=0.0,
         classify__escalate_urgent=False,
         classify__escalate_strong_frustration=False,
         classify__insufficient_gate=False,
-        audit_rate=1.0,
     )
     kept = ingest(client, "ラッピングはできますか？")
     fixed = ingest(client, "ラッピングはできますか？（2 件目）")
     first = settle(client, kept)["item"]
     second = settle(client, fixed)["item"]
     assert first["status"] == second["status"] == "routed"
-    # 分類を触らずに完了 → 合っていた（抜き取りの結果も「問題なし」）
+    # 分類を触らずに完了 → 合っていた
     closed = client.post(f"/api/ops/items/{kept}/close", json={"category": None}).json()
     assert closed["status"] == "closed" and closed["category"] == first["category"]
-    assert closed["audit_result"] == "ok"
     # 分類を切り替えて完了 → 修正（人が決めた分類になる）
     other = next(c for c in ("inquiry", "other") if c != second["category"])
     changed = client.post(f"/api/ops/items/{fixed}/close", json={"category": other}).json()
-    assert changed["category"] == other and changed["decided_by"] == "human" and changed["audit_result"] == "fixed"
+    assert changed["category"] == other and changed["decided_by"] == "human"
     # 完了した件は、閾値の調整で人が確かめた正解として数える
     report = client.get("/api/ops/tuning", params={"source": "human"}).json()
     assert report["n"] == 2
     # 完了した件は、もう完了にできない
     assert client.post(f"/api/ops/items/{kept}/close", json={"category": None}).status_code == 422
-
-
-def test_audit_decision_records_result_once(client: TestClient) -> None:
-    configure(
-        client,
-        guard__human_check=False,
-        classify__auto_threshold=0.0,
-        classify__review_threshold=0.0,
-        classify__escalate_urgent=False,
-        classify__escalate_strong_frustration=False,
-        classify__insufficient_gate=False,
-        audit_rate=1.0,
-    )
-    item_id = ingest(client, "ラッピングはできますか？")
-    item = settle(client, item_id)["item"]
-    assert item["audit"] is True
-    other = next(c for c in ("inquiry", "other") if c != item["category"])
-    assert client.post(f"/api/ops/items/{item_id}/decide", json={"category": other}).json()["audit_result"] == "fixed"
-    # 確認済みの件はもう一度確認できない（結果が上書きされない）
-    assert client.post(f"/api/ops/items/{item_id}/decide", json={"category": item["category"]}).status_code == 422
 
 
 def test_insufficient_gate_sends_confident_items_to_review(client: TestClient) -> None:
@@ -526,7 +507,6 @@ def test_insufficient_gate_sends_confident_items_to_review(client: TestClient) -
         classify__escalate_strong_frustration=False,
         classify__split_margin=0.0,
         classify__insufficient_at=0.0,
-        audit_rate=0.0,
     )
     item = settle(client, ingest(client, "ラッピングはできますか？"))["item"]
     assert item["status"] == "review"
@@ -807,16 +787,6 @@ def test_miss_report_needs_item_sent_to_jev(client: TestClient) -> None:
     settle(client, item_id)  # ブロックして Jev には送っていない
     res = client.post(f"/api/ops/items/{item_id}/miss", json={"type": "phone", "start": 0, "end": 3})
     assert res.status_code == 422
-
-
-def test_reminder_must_be_shorter_than_sla(client: TestClient) -> None:
-    settings: dict[str, Any] = client.get("/api/ops/settings").json()
-    settings["sla"]["hours"] = 1
-    settings["slack"]["reminder_before_min"] = 60
-    res = client.put("/api/ops/settings", json=settings)
-    assert res.status_code == 422 and "対応目安" in res.json()["detail"]
-    settings["slack"]["reminder_before_min"] = 59
-    assert client.put("/api/ops/settings", json=settings).status_code == 200
 
 
 def test_reported_miss_is_masked_in_titles_and_assign_examples(client: TestClient) -> None:
