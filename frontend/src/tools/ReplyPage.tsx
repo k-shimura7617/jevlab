@@ -3,7 +3,7 @@ import { Link, useBlocker, useSearchParams } from 'react-router'
 import { errorMessage } from '../api'
 import { pct, TARGET_SHORT, usd } from '../format'
 import { ops, type Item } from '../ops/api'
-import { bodyFitsMailto, canMail, replyHref } from '../ops/mail'
+import { canMail, replyHref } from '../ops/mail'
 import { Page, useShell, useTitle } from '../shell'
 import { tools, type Level, type ReplyCheck, type ReplyMeta, type ReplyResult, suggestReplyStream, type SuggestDone } from './api'
 import { PiiCheckButton } from './PiiCheck'
@@ -120,7 +120,6 @@ export function ReplyPage() {
   const generation = useRef(0)
   // 書いている途中の AI返信案を止めるため（画面を離れる・判定し直すとき）
   const abortRef = useRef<AbortController | null>(null)
-  const [copyMsg, setCopyMsg] = useState<string | null>(null)
   const policyText = policy ?? meta?.default_policy ?? ''
 
   useEffect(() => {
@@ -383,26 +382,6 @@ export function ReplyPage() {
                 >
                   この内容で返信
                 </a>
-                {!stale && judged && !bodyFitsMailto(judged.draft) && (
-                  <span className="small">
-                    本文が長いのでコピーして貼り付け{' '}
-                    <button
-                      type="button"
-                      className="secondary"
-                      onClick={() =>
-                        navigator.clipboard
-                          ? navigator.clipboard
-                              .writeText(judged.draft)
-                              .then(() => setCopyMsg('コピーしました'))
-                              .catch((e: unknown) => setCopyMsg(`コピーできませんでした: ${errorMessage(e)}`))
-                          : setCopyMsg('この接続ではコピーできません。本文を選んでコピーしてください')
-                      }
-                    >
-                      本文をコピー
-                    </button>
-                    {copyMsg && <span role="status"> {copyMsg}</span>}
-                  </span>
-                )}
               </div>
             )}
           </section>
