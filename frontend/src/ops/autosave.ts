@@ -12,8 +12,8 @@ import { useOps } from './state'
 export interface AutoSave {
   draft: Settings | null
   set: (f: (s: Settings) => Settings) => void
-  /** いまの下書きを保存する（ボタンの操作の直後など）。 */
-  commit: () => Promise<void>
+  /** いまの下書きを保存する（ボタンの操作の直後など）。保存できたかを返す。 */
+  commit: () => Promise<boolean>
   /** 画面の外枠に付ける（中の欄のカーソルが外れた・選択が変わったときに保存する）。 */
   handlers: {
     onBlur: (e: FocusEvent) => void
@@ -49,7 +49,8 @@ export function useAutoSave(
   useLayoutEffect(() => {
     draftRef.current = edited ?? settings
   }, [edited, settings])
-  const busy = useRef(false)
+  // 保存中の約束（保存中にさらに変えた分は、いまの保存が終わってから続けて保存する）
+  const inflight = useRef<Promise<boolean> | null>(null)
   const dirty = edited !== null && settings !== null && changed(edited, settings)
 
   const set = useCallback((f: (s: Settings) => Settings) => {
@@ -61,28 +62,47 @@ export function useAutoSave(
     setStatus(null)
   }, [])
 
-  const commit = useCallback(async () => {
+  // 保存の続きは、そのときの最新の commit で行う（保存の後で settings が変わるため）
+  const commitRef = useRef<() => Promise<boolean>>(() => Promise.resolve(true))
+  const commit = useCallback(async (): Promise<boolean> => {
+    if (inflight.current) {
+      await inflight.current
+      return commitRef.current()
+    }
     const next = draftRef.current
-    if (!next || !settings || !changed(next, settings) || busy.current) return
+    if (!next || !settings || !changed(next, settings)) return true
     const invalid = validate(next)
     if (invalid) {
       setError(invalid)
-      return
+      return false
     }
-    busy.current = true
     setError(null)
+    const run = (async () => {
+      try {
+        const latest = await ops.settings()
+        await saveSettings(merge(latest, next))
+        // 保存している間にさらに編集していたら、その下書きは残す（続けて保存する）
+        if (draftRef.current === next) setEdited(null)
+        setStatus('保存しました')
+        return true
+      } catch (e: unknown) {
+        // 保存できなかった変更は取り消し、サーバの値に戻す（そのままだと以後の保存もすべて失敗する）
+        setEdited(null)
+        setStatus(null)
+        setError(`${errorMessage(e)}（元に戻しました）`)
+        return false
+      }
+    })()
+    inflight.current = run
     try {
-      const latest = await ops.settings()
-      await saveSettings(merge(latest, next))
-      // 保存している間にさらに編集していたら、その下書きは残す
-      if (draftRef.current === next) setEdited(null)
-      setStatus('保存しました')
-    } catch (e: unknown) {
-      setError(errorMessage(e))
+      return await run
     } finally {
-      busy.current = false
+      inflight.current = null
     }
   }, [settings, saveSettings, changed, merge, validate])
+  useLayoutEffect(() => {
+    commitRef.current = commit
+  }, [commit])
 
   const later = useCallback(() => void Promise.resolve().then(commit), [commit])
   const handlers = {
@@ -101,15 +121,25 @@ export function useAutoSave(
   // 保存していない変更を残したまま離れるとき: 保存できる値なら保存してから移り、保存できない値のときだけ聞く
   const invalid = dirty && draft ? validate(draft) : null
   const blocker = useBlocker(dirty)
+  // 同じ「移動の保留」を 1 回だけ処理する（保存中の再描画で効果が走り直しても、移動を二重に進めない）
+  const handling = useRef(false)
   useEffect(() => {
-    if (blocker.state !== 'blocked') return
-    if (invalid === null) {
-      void commit().then(() => blocker.proceed())
+    if (blocker.state !== 'blocked') {
+      handling.current = false
       return
     }
-    if (window.confirm(`保存できない値があります（${invalid}）。変更を破棄して移動しますか？`)) blocker.proceed()
-    else blocker.reset()
-  }, [blocker, invalid, commit])
+    if (handling.current) return
+    handling.current = true
+    if (invalid !== null) {
+      if (window.confirm(`保存できない値があります（${invalid}）。変更を破棄して移動しますか？`)) blocker.proceed()
+      else blocker.reset()
+      return
+    }
+    void commitRef.current().then((ok) => {
+      if (ok || window.confirm('保存できませんでした。破棄して移動しますか？')) blocker.proceed()
+      else blocker.reset()
+    })
+  }, [blocker, invalid])
   useEffect(() => {
     if (!dirty) return
     const warn = (e: BeforeUnloadEvent) => e.preventDefault()

@@ -3,7 +3,9 @@
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import json
+import logging
 from collections.abc import AsyncIterator
 from typing import Annotated, Final
 
@@ -29,6 +31,8 @@ from jevlab.ops.pii import PII_LABELS, PII_TYPES, Span, apply_mask
 from jevlab.ops.pipeline import TARGET_NAMES, BackendLike, Pipeline
 from jevlab.ops.store import ItemNotFoundError
 from jevlab.tools import contract, reply, tone
+
+log = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/tools", tags=["tools"])
 # claude -p は重いので同時に走らせる数を絞る（サブスクの枠も守る）
@@ -371,15 +375,20 @@ async def suggest_reply_stream(req: reply.SuggestRequest, request: Request) -> S
     async def body() -> AsyncIterator[bytes]:
         try:
             async with slots:
-                async for part in make_stream_generator(req.model).stream(
-                    GenerateRequest(system=system, prompt=prompt)
-                ):
-                    if isinstance(part, GeneratedText):
-                        yield _line({"type": "done", "model": part.model, "latency_ms": part.latency_ms})
-                    else:
-                        yield _line({"type": "text", "text": part})
+                parts = make_stream_generator(req.model).stream(GenerateRequest(system=system, prompt=prompt))
+                # 画面を閉じた・中止した（接続が切れた）ら、claude をすぐ止めて枠を空ける
+                async with contextlib.aclosing(parts):
+                    async for part in until_disconnected(parts, request):
+                        if isinstance(part, GeneratedText):
+                            yield _line({"type": "done", "model": part.model, "latency_ms": part.latency_ms})
+                        else:
+                            yield _line({"type": "text", "text": part})
         except GenerationError as e:
             yield _line({"type": "error", "message": f"AI返信案を作れませんでした: {e}"})
+        except Exception as e:
+            # 予期しない失敗でもストリームを黙って切らず、画面にエラーの行として知らせる
+            log.exception("AI返信案のストリーミングに失敗しました")
+            yield _line({"type": "error", "message": f"AI返信案を作れませんでした: {type(e).__name__}: {e}"})
 
     return StreamingResponse(body(), media_type="application/x-ndjson")
 
@@ -417,3 +426,29 @@ async def pii_check(req: PiiCheckRequest, request: Request) -> PiiCheckResult:
         model_name=TARGET_NAMES[asked] if asked else None,
         labels=dict(PII_LABELS),
     )
+
+
+# 接続が切れていないかを確かめる間隔（秒）
+DISCONNECT_POLL_S: Final = 0.5
+
+
+async def until_disconnected[T](parts: AsyncIterator[T], request: Request) -> AsyncIterator[T]:
+    """parts を順に返す。相手との接続が切れたら、待っている途中でも止める（生成を取り消す）。
+
+    claude が何も書いていない間は送信もないため、送信の失敗だけでは切断に気づけない。そのため定期的に確かめる。
+    """
+    while True:
+        nxt = asyncio.ensure_future(anext(parts))
+        while True:
+            done, _ = await asyncio.wait({nxt}, timeout=DISCONNECT_POLL_S)
+            if done:
+                break
+            if await request.is_disconnected():
+                nxt.cancel()
+                with contextlib.suppress(asyncio.CancelledError, StopAsyncIteration):
+                    await nxt
+                return
+        try:
+            yield nxt.result()
+        except StopAsyncIteration:
+            return

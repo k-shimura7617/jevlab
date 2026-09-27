@@ -389,6 +389,25 @@ tr.off td { color: var(--muted); }
 .category-table td:nth-child(2) { min-width: 16em; }
 .category-table td:nth-child(2) textarea { width: 100%; box-sizing: border-box; }
 .category-table td:nth-child(3) input { width: 9em; }
+/* 分類の表: 狭い画面では 1 分類を 1 枚のカードにし、操作の列（使う・受け皿・削除）も見えるようにする */
+@media (max-width: 600px) {
+  .category-table thead { display: none; }
+  .category-table, .category-table tbody, .category-table tr, .category-table td { display: block; width: auto; }
+  .category-table tr { border: 1px solid var(--line); border-radius: 8px; padding: 6px 8px; margin-bottom: 8px; }
+  .category-table td { display: flex; align-items: center; gap: 8px; padding: 3px 0; }
+  .category-table td::before { min-width: 7.5em; color: var(--muted); font-size: 12px; }
+  .category-table td:nth-child(1)::before { content: "表示名"; }
+  .category-table td:nth-child(2)::before { content: "説明"; }
+  .category-table td:nth-child(3)::before { content: "チャンネル"; }
+  .category-table td:nth-child(4)::before { content: "使う"; }
+  .category-table td:nth-child(5)::before { content: "返信不要"; }
+  .category-table td:nth-child(6)::before { content: "返信の要否を判定"; }
+  .category-table td:nth-child(7)::before { content: "受け皿"; }
+  .category-table td:nth-child(8):empty { display: none; }
+  .category-table td:nth-child(2) { min-width: 0; }
+  .category-table td:nth-child(1) input, .category-table td:nth-child(3) input { width: auto; flex: 1; min-width: 0; }
+  .category-table td:nth-child(2) textarea { flex: 1; min-width: 0; }
+}
 .slack-settings > summary { cursor: pointer; padding: 8px 0; font-size: 14px; font-weight: 600; }
 .slack-purge { margin-top: 24px; padding-top: 12px; border-top: 1px solid var(--line); }
 .slack-purge h3 { margin: 0 0 8px; }

@@ -118,6 +118,12 @@ function QuickActions({
           メールで返信
         </a>
       )}
+      {item.status === 'closed' && item.auto_closed && (
+        // 誤って自動で完了にした件（お礼と誤分類した苦情など）を振り分け済みに戻し、分類を直して完了にし直せるようにする
+        <button type="button" className="secondary" disabled={busy} onClick={() => run(() => ops.reopen(item.id))}>
+          自動の完了を取り消す
+        </button>
+      )}
       {item.status === 'error' && (
         <button type="button" disabled={busy} onClick={() => run(() => ops.retry(item.id))}>
           再実行
@@ -128,10 +134,6 @@ function QuickActions({
   )
 }
 
-/**
- * 振り分け済みの件の対応完了。最終の分類は、いまの分類を最初から選んでおく。
- * 触らずに完了すれば「分類は合っていた」、切り替えれば「修正した」として記録し、閾値の調整の正解に使う。
- */
 /** 振り分け済みの件の担当（自動で割り当てた担当を人が変える）。 */
 function RoutedAssignee({ item, busy, run }: { item: Item; busy: boolean; run: (f: () => Promise<unknown>) => void }) {
   const { settings } = useOps()
@@ -155,6 +157,10 @@ function RoutedAssignee({ item, busy, run }: { item: Item; busy: boolean; run: (
   )
 }
 
+/**
+ * 振り分け済みの件の対応完了。最終の分類は、いまの分類を最初から選んでおく。
+ * 触らずに完了すれば「分類は合っていた」、切り替えれば「修正した」として記録し、閾値の調整の正解に使う。
+ */
 function CloseRouted({ item, meta, busy, run }: { item: Item; meta: Meta; busy: boolean; run: (f: () => Promise<unknown>) => void }) {
   const [category, setCategory] = useState(item.category ?? '')
   return (

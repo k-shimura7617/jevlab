@@ -44,6 +44,7 @@ EventKind = Literal[
     "error",
     "retry",
     "miss",
+    "reopen",
 ]
 Actor = Literal["system", "kev", "jev", "mock", "human", "connector"]
 

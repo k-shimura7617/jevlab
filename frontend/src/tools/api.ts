@@ -181,6 +181,7 @@ export interface SuggestDone {
 /**
  * AI返信案をストリーミングで受け取る（1 行 1 つの JSON）。書いた分は onText に渡す。
  * 途中で失敗したら、それまでに書いた分は onText で渡し済みのまま、エラーを投げる。
+ * signal で中止すると、読み取りをやめて接続を切る（サーバ側の生成も止まる）。
  */
 export async function suggestReplyStream(
   body: {
@@ -192,11 +193,13 @@ export async function suggestReplyStream(
     model: ClaudeModel
   },
   onText: (text: string) => void,
+  signal?: AbortSignal,
 ): Promise<SuggestDone> {
   const res = await fetch('/api/tools/reply/suggest/stream', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(body),
+    signal,
   })
   if (!res.ok || !res.body) {
     const data: unknown = await res.json().catch(() => null)
@@ -204,22 +207,35 @@ export async function suggestReplyStream(
   }
   const reader = res.body.pipeThrough(new TextDecoderStream()).getReader()
   let buffer = ''
-  for (;;) {
-    const { value, done } = await reader.read()
-    if (value) buffer += value
-    // 行の区切りまでを読み、残りは次に回す
-    const lines = buffer.split('\n')
-    buffer = done ? '' : (lines.pop() ?? '')
-    for (const line of lines) {
-      if (!line.trim()) continue
-      const msg: unknown = JSON.parse(line)
-      if (typeof msg !== 'object' || msg === null || !('type' in msg)) continue
-      if (msg.type === 'text' && 'text' in msg && typeof msg.text === 'string') onText(msg.text)
-      else if (msg.type === 'error') throw new Error('message' in msg && typeof msg.message === 'string' ? msg.message : 'AI返信案を作れませんでした')
-      else if (msg.type === 'done' && 'model' in msg && typeof msg.model === 'string' && 'latency_ms' in msg && typeof msg.latency_ms === 'number')
-        return { model: msg.model, latency_ms: msg.latency_ms }
+  try {
+    for (;;) {
+      const { value, done } = await reader.read()
+      if (value) buffer += value
+      // 行の区切りまでを読み、残りは次に回す
+      const lines = buffer.split('\n')
+      buffer = done ? '' : (lines.pop() ?? '')
+      for (const line of lines) {
+        if (!line.trim()) continue
+        const msg = parseLine(line)
+        if (typeof msg !== 'object' || msg === null || !('type' in msg)) continue
+        if (msg.type === 'text' && 'text' in msg && typeof msg.text === 'string') onText(msg.text)
+        else if (msg.type === 'error') throw new Error('message' in msg && typeof msg.message === 'string' ? msg.message : 'AI返信案を作れませんでした')
+        else if (msg.type === 'done' && 'model' in msg && typeof msg.model === 'string' && 'latency_ms' in msg && typeof msg.latency_ms === 'number')
+          return { model: msg.model, latency_ms: msg.latency_ms }
+      }
+      if (done) throw new Error('AI返信案の応答が途中で切れました')
     }
-    if (done) throw new Error('AI返信案の応答が途中で切れました')
+  } finally {
+    // 途中で抜けたとき（エラー・中止）も接続を閉じる
+    reader.cancel().catch((e: unknown) => console.warn('AI返信案の接続を閉じられませんでした', e))
+  }
+}
+
+const parseLine = (line: string): unknown => {
+  try {
+    return JSON.parse(line)
+  } catch (e: unknown) {
+    throw new Error('AI返信案の応答を読めませんでした', { cause: e })
   }
 }
 
@@ -239,9 +255,6 @@ export const tools = {
   replyMeta: () => call<ReplyMeta>('GET', '/reply/meta'),
   reply: (target: Mode, body: { inquiry: string; item_id: string | null; draft: string; policy: string }) =>
     call<ReplyResult>('POST', `/reply?target=${encodeURIComponent(target)}`, body),
-  replyRewrite: (body: { inquiry: string; draft: string; policy: string; findings: { title: string; detail: string }[]; model: ClaudeModel }) =>
-    call<RewriteResult>('POST', '/reply/rewrite', body),
-  replyDraft: (body: { inquiry: string; policy: string; model: ClaudeModel }) => call<RewriteResult>('POST', '/reply/draft', body),
   // 件から開いたときの問い合わせ（サーバで伏せ字にしたもの）
   replyItem: (itemId: string) => call<{ id: string; inquiry: string }>('GET', `/reply/item/${encodeURIComponent(itemId)}`),
   // ローカルの個人情報チェック（規則と Kev。Jev・Claude には送らない）
