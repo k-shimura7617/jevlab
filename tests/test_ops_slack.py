@@ -240,8 +240,12 @@ async def test_escalation_thread_mentions_dispatcher_when_unassigned(tmp_path: P
     ((_, parent),) = api.sent
     assert f"<http://127.0.0.1:8000/ops/escalations?id={item_id}|画面で開く>" in parent
     assert api.threads == [None]
-    # メンションは親の投稿の先頭に書く。推定した担当（田村）は名前だけ。呼び出すのは振り分け担当（佐藤）
-    assert parent.startswith("<@U0SATO001>\n担当を決めてください。\n推定: 田村\n") and "U0TAMURA1" not in parent
+    # メンションは親の投稿の先頭、お願いは本文のあとに書く。推定した担当（田村）は名前だけ。呼び出すのは振り分け担当（佐藤）
+    assert (
+        parent.startswith("<@U0SATO001>\n")
+        and parent.endswith("\n\n担当を決めてください。\n推定: 田村")
+        and "U0TAMURA1" not in parent
+    )
     assert conn.pipeline.store.get(item_id).slack_ts == "1.0"
 
 
@@ -253,7 +257,7 @@ async def test_escalation_thread_mentions_auto_assignee_and_follows_changes(tmp_
     await conn.tick()
     item_id = escalate(conn, assignee="tamura", assigned_by="auto", assign_suggestion="tamura")
     await conn.tick()
-    assert api.sent[0][1].startswith("<@U0TAMURA1>\n対応お願いします。")
+    assert api.sent[0][1].startswith("<@U0TAMURA1>\n") and api.sent[0][1].endswith("\n\n対応お願いします。")
     # 人が担当を変えた・外した・完了にした → 同じスレッドに書き足す
     conn.pipeline.assign(item_id, "suzuki")
     conn.pipeline.assign(item_id, "")
@@ -447,7 +451,7 @@ async def test_routed_post_links_to_item_and_close_replies_with_reaction(tmp_pat
     assert channel == C_COMPLAINT and f"<http://127.0.0.1:8000/ops/inbox?id={item_id}|画面で開く>" in parent
     assert conn.pipeline.store.get(item_id).slack_ts == "1.0"
     # 返信の要る件は、親の投稿の先頭で担当（決まっていなければ振り分け担当）をメンションする
-    assert parent.startswith("<@U0SATO001>\n")
+    assert parent.startswith("<@U0SATO001>\n") and parent.endswith("\n\n担当を決めてください。")
     # 分類を変えずに完了 → スレッドに返信し、親に ✅ を付ける。新しい投稿は増えない
     closed = conn.pipeline.close(item_id, None)
     assert closed.status == "closed" and closed.category == "complaint"
@@ -518,7 +522,11 @@ async def test_off_duty_dispatcher_is_not_called(tmp_path: Path) -> None:
     escalate(conn)
     await conn.tick()
     parent = api.sent[0][1]
-    assert "U0SATO001" not in parent and parent.startswith("（振り分け担当が未設定）")
+    assert (
+        "U0SATO001" not in parent
+        and parent.startswith("（振り分け担当が未設定）\n")
+        and parent.endswith("\n\n担当を決めてください。")
+    )
 
 
 @pytest.mark.anyio
@@ -555,7 +563,7 @@ async def test_provisional_assignee_is_mentioned(tmp_path: Path) -> None:
     await conn.tick()
     parent = api.sent[0][1]
     # カッコ書き（仮で割り当て など）は付けず、担当確信度を 1 行で添える
-    assert parent.startswith("<@U0TAMURA1>\n対応お願いします。\n担当確信度 0.42\n")
+    assert parent.startswith("<@U0TAMURA1>\n") and parent.endswith("\n\n対応お願いします。\n担当確信度 0.42")
 
 
 @pytest.mark.anyio
@@ -675,7 +683,7 @@ async def test_categories_needing_a_reply_stay_open(tmp_path: Path) -> None:
     await conn.tick()
     # 投稿の先頭でメンションする。スレッドには書かず、✅ も付けない
     assert [c for c, _ in api.sent] == ["C0INQUIRY1"] and api.threads == [None] and not api.reactions
-    assert api.sent[0][1].splitlines()[1] == "担当を決めてください。"
+    assert api.sent[0][1].endswith("\n\n担当を決めてください。")
 
 
 @pytest.mark.anyio
@@ -698,7 +706,11 @@ async def test_routed_item_needing_a_reply_is_assigned_and_mentioned(tmp_path: P
     # 確率が閾値に届かなくても、仮で割り当てる
     assert routed.status == "routed" and routed.assignee == "tamura" and routed.assign_provisional
     await conn.tick()
-    assert api.sent[0][1].startswith("<@U0TAMURA1>\n対応お願いします。\n担当確信度 0.30\n") and api.threads == [None]
+    assert (
+        api.sent[0][1].startswith("<@U0TAMURA1>\n")
+        and api.sent[0][1].endswith("\n\n対応お願いします。\n担当確信度 0.30")
+        and api.threads == [None]
+    )
     # 振り分け済みの件も、人が担当を変えられる
     assert conn.pipeline.assign(item.id, "sato").assignee == "sato"
 

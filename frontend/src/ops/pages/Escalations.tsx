@@ -45,6 +45,7 @@ function Handling({ item, onDone }: { item: Item; onDone: () => void }) {
       })
       .finally(() => setBusy(false))
   }
+  const addNote = () => run(() => ops.note(item.id, note.trim()), () => setNote(''))
   return (
     <section className="handling" data-testid="handling">
       <h3>対応</h3>
@@ -106,8 +107,17 @@ function Handling({ item, onDone }: { item: Item; onDone: () => void }) {
         </select>
         <label htmlFor="note">メモ</label>
         <div className="row tight">
-          <input id="note" value={note} placeholder="例: 代替品を本日発送。お客様へ電話済み" onChange={(e) => setNote(e.target.value)} />
-          <button type="button" className="secondary" disabled={busy || !note.trim()} onClick={() => run(() => ops.note(item.id, note.trim()), () => setNote(''))}>
+          <input
+            id="note"
+            value={note}
+            placeholder="例: 代替品を本日発送。お客様へ電話済み"
+            onChange={(e) => setNote(e.target.value)}
+            onKeyDown={(e) => {
+              // 日本語入力の変換を確定する Enter では追加しない
+              if (e.key === 'Enter' && !e.nativeEvent.isComposing && !busy && note.trim()) addNote()
+            }}
+          />
+          <button type="button" className="secondary" disabled={busy || !note.trim()} onClick={addNote}>
             追加
           </button>
         </div>
