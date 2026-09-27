@@ -524,7 +524,9 @@ export function TonePage() {
             </div>
           </div>
           <p className="muted small">
-            指摘 {findingsOf(judged.result, purpose).length} 件を Claude に渡す。足りない情報は【空欄】
+            指摘 {findingsOf(judged.result, purpose).length} 件を Claude に渡します。
+            <br />
+            足りない情報は【空欄】にします。
           </p>
           {stale && <p className="warn-text small">入力が変わっています。判定し直してください。</p>}
           {rwError && (

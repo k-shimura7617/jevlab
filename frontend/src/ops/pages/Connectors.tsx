@@ -156,7 +156,9 @@ function SlackPanel() {
       )}
       {st && (!st.bot_token || !st.app_token) && (
         <p className="warn-box small">
-          トークンが未設定です。手順: docs/slack-setup.md
+          トークンが未設定です。
+          <br />
+          手順は docs/slack-setup.md にあります。
         </p>
       )}
       {st?.outbound.last_error && <div className="error small">送信: {st.outbound.last_error}</div>}

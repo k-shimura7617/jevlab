@@ -93,7 +93,9 @@ function Editor({ item, onDone, enqueue }: { item: Item; onDone: (id: string) =>
         </div>
       </header>
       <p className="muted small">
-        色付き＝個人情報（クリックで外す）。漏れは選択して追加
+        色付きの箇所を伏せて送ります。
+        <br />
+        クリックで外せます。見落としは本文を選んで足します。
       </p>
       {/* 知らせる欄は高さを固定し、中でスクロールさせる（チェックの切り替えや件の移動で画面の位置がずれないように） */}
       <div className="pii-messages" aria-live="polite" data-testid="pii-messages">
@@ -377,7 +379,6 @@ export function PiiReview() {
       <div className="panel-head">
         <h1>個人情報の確認</h1>
         <KevQueueNote queue={overview?.kev_queue} available={overview?.kev?.available ?? true} />
-        <span className="muted small">確認してから Jev に送る</span>
       </div>
       <div className="queue-layout">
         <section className="panel list-pane">
@@ -385,9 +386,9 @@ export function PiiReview() {
             個人情報の確認待ち <span className="n">{items.length}</span>
           </h2>
           <p className="muted small">
-            「検出済み」は最初から選択。ブロック対象は送らない
+            選んだ件は、見つけた箇所を伏せて送ります。
             <br />
-            「編集あり」は編集した内容で処理
+            「編集あり」の件は、編集したとおりに送ります。
           </p>
           <BulkBar count={selected.length} total={items.length} onAll={() => setAll(items.map((i) => i.id))} onNone={() => setAll([])}>
             <button type="button" disabled={bulkBusy || !selected.length} onClick={runBulk}>

@@ -205,7 +205,11 @@ function MissReport({ item, labels, onDone }: { item: Item; labels: Record<strin
   return (
     <details className="miss-report" data-testid="miss-report">
       <summary>検知漏れを報告</summary>
-      <p className="note small">送信済みのため取り消せません。今後の改善に使います</p>
+      <p className="note small">
+        報告は取り消せません。
+        <br />
+        検知の改善に使います。
+      </p>
       <SelectableText
         text={item.text}
         spans={item.pii.filter((s) => s.confirmed)}
