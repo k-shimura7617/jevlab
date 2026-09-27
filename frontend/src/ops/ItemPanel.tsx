@@ -118,6 +118,12 @@ function QuickActions({
           メールで返信
         </a>
       )}
+      {item.status === 'closed' && item.auto_closed && (
+        // 誤って自動で完了にした件（お礼と誤分類した苦情など）を振り分け済みに戻し、分類を直して完了にし直せるようにする
+        <button type="button" className="secondary" disabled={busy} onClick={() => run(() => ops.reopen(item.id))}>
+          自動の完了を取り消す
+        </button>
+      )}
       {item.status === 'error' && (
         <button type="button" disabled={busy} onClick={() => run(() => ops.retry(item.id))}>
           再実行

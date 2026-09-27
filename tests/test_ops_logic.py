@@ -324,3 +324,43 @@ def test_refund_priority_counts_only_when_refund_is_mentioned() -> None:
     assert priority_parts({"refund": refund, "refund_mentioned": silent})["refund"] == 0.0
     # ゲートの問いがない以前の件は、これまでどおり返金度を使う
     assert priority_parts({"refund": refund})["refund"] == 0.5
+
+
+def test_thanks_with_urgency_or_strong_frustration_is_never_auto_closed() -> None:
+    from jevlab.ops.pipeline import no_reply_reason
+
+    s = Settings()
+    calm = make_item(category="thanks", answers=answers(0.99))
+    assert no_reply_reason(calm, s) is not None
+    urgent = make_item(category="thanks", answers=answers(0.99, urgent=0.9))
+    angry = make_item(category="thanks", answers=answers(0.99, frustration=2))
+    # エスカレーションの設定をオフにしていても、兆しがある件は自動で完了にしない
+    off = s.model_copy(
+        update={
+            "classify": s.classify.model_copy(update={"escalate_urgent": False, "escalate_strong_frustration": False})
+        }
+    )
+    for item in (urgent, angry):
+        assert no_reply_reason(item, s) is None and no_reply_reason(item, off) is None
+
+
+def test_reopen_returns_an_auto_closed_item_to_routed(tmp_path: Path) -> None:
+    store = Store(tmp_path / "ops.db")
+    pipeline = Pipeline(store=store, backends={})
+    item = store.add_item(IngestRequest(channel="mail", subject="ありがとう", body="本文"))
+    store.update(item.id, lambda i: i.model_copy(update={"status": "routed", "category": "thanks"}))
+    pipeline._auto_close(store.get(item.id), "返信のいらない分類（お礼）")
+    assert store.get(item.id).status == "closed"
+    reopened = pipeline.reopen(item.id)
+    assert reopened.status == "routed" and not reopened.auto_closed and reopened.closed_at is None
+    assert [e.kind for e in store.events(item.id)][-1] == "reopen"
+    # 分類を直して完了にし直せる（人が直した記録になる）
+    fixed = pipeline.close(item.id, "complaint")
+    assert fixed.status == "closed" and fixed.category == "complaint" and fixed.decided_by == "human"
+    # 人が完了にした件は、自動の完了ではないので取り消せない
+    try:
+        pipeline.reopen(item.id)
+    except ValueError as e:
+        assert "自動で完了" in str(e)
+    else:
+        raise AssertionError("人が完了にした件を取り消せてしまった")

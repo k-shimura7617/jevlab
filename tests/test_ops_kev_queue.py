@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from jevlab.ops.kev_queue import needs_kev, summarize
+from jevlab.ops.kev_queue import kev_calls, needs_kev, summarize
 from jevlab.ops.models import Event, Item, Settings
 
 
@@ -55,3 +55,15 @@ def test_summarize_estimates_time_from_recent_latencies() -> None:
     assert q.last_at == "2026-09-26T00:00:03+00:00"
     empty = summarize([], [], Settings(), concurrency=1)
     assert empty.waiting == 0 and empty.eta_s is None and empty.last_at is None
+
+
+def test_items_that_use_kev_twice_count_twice_with_phase_medians() -> None:
+    s = Settings()
+    both = s.model_copy(update={"classify": s.classify.model_copy(update={"target": "custom"})})
+    assert kev_calls(_item(1), both) == ["guard", "classify"]
+    assert kev_calls(_item(2, pii_decision="masked"), both) == ["classify"]
+    guard_ev = _event(2, 1000.0)
+    classify_ev = _event(1, 3000.0).model_copy(update={"kind": "classify"})
+    q = summarize([_item(1), _item(2, pii_decision="masked")], [guard_ev, classify_ev], both, concurrency=1)
+    # T-0001 はチェック 1 秒＋仕分け 3 秒、T-0002 は仕分け 3 秒 → 7 秒
+    assert (q.waiting, q.calls, q.eta_s) == (2, 3, 7.0)

@@ -908,3 +908,15 @@ def test_progress_counts_received_and_waiting(client: TestClient) -> None:
     settle(client, item_id)
     after = client.get("/api/ops/progress").json()
     assert after == {"received": before["received"] + 1, "waiting": 0}
+
+
+def test_audit_csv_records_truncation(client: TestClient, monkeypatch: pytest.MonkeyPatch) -> None:
+    from jevlab.ops import api as ops_api
+
+    monkeypatch.setattr(ops_api, "AUDIT_MAX_ROWS", 2)
+    configure(client, guard__use_model=False, guard__human_check=False)
+    settle(client, ingest(client, "在庫はありますか"))
+    res = client.get("/api/ops/audit.csv")
+    rows = list(csv.reader(io.StringIO(res.content.decode("utf-8-sig"))))
+    assert len(rows) == 3 and res.headers["x-jevlab-truncated"] == "2"
+    assert "打ち切り" in client.get("/api/ops/audit/exports").json()[0]["conditions"]

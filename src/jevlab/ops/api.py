@@ -2,12 +2,13 @@
 
 from __future__ import annotations
 
+import asyncio
 import base64
 import binascii
 from collections import Counter
 from collections.abc import Callable
 from datetime import UTC, date, datetime
-from typing import Annotated, Literal
+from typing import Annotated, Final, Literal
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response
 from pydantic import BaseModel, Field
@@ -648,6 +649,14 @@ async def close(item_id: str, req: Close, pipeline: PipelineDep) -> ItemOut:
         raise _http(e) from e
 
 
+@router.post("/items/{item_id}/reopen")
+async def reopen(item_id: str, pipeline: PipelineDep) -> ItemOut:
+    try:
+        return _out(pipeline.reopen(item_id))
+    except (ItemNotFoundError, ValueError) as e:
+        raise _http(e) from e
+
+
 @router.post("/items/{item_id}/retry")
 async def retry(item_id: str, pipeline: PipelineDep) -> ItemOut:
     try:
@@ -675,6 +684,7 @@ def _align_categories(prev: Settings, new: Settings, items: list[Item]) -> Setti
         raise HTTPException(
             status_code=422, detail=f"{names}は使った件があるので削除できません。「使う」を外して廃止にしてください"
         )
+    _check_category_channels(new)
     moves = {
         p.channel: n.channel
         for p in prev.categories
@@ -683,12 +693,37 @@ def _align_categories(prev: Settings, new: Settings, items: list[Item]) -> Setti
     }
     slack = new.slack
     if moves:
+        targets = [moves.get(k, k) for k in slack.channel_map]
+        clash = sorted({t for t in targets if targets.count(t) > 1})
+        if clash:
+            raise HTTPException(
+                status_code=422,
+                detail=f"{'・'.join(clash)} は Slack の割り当てがすでにあります。先に割り当てを外してください",
+            )
         slack = slack.model_copy(update={"channel_map": {moves.get(k, k): v for k, v in slack.channel_map.items()}})
-    active = {c.key for c in new.active_categories()}
+    # 廃止した分類の閾値は残す（使うに戻したときに調整した値を使えるように）。削除した分類の分だけ消す
+    kept = {c.key for c in new.categories}
     classify = new.classify.model_copy(
-        update={"label_thresholds": {k: v for k, v in new.classify.label_thresholds.items() if k in active}}
+        update={"label_thresholds": {k: v for k, v in new.classify.label_thresholds.items() if k in kept}}
     )
     return new.model_copy(update={"slack": slack, "classify": classify})
+
+
+# 分類の振り分け先に使えないチャンネル。
+# 窓口は受信した本文をそのまま載せる場所、エスカレーションは人に回した件の場所で、どちらも振り分けの投稿と混ぜられない
+RESERVED_CHANNELS: Final = frozenset({INBOUND_CHANNEL, ESCALATION_CHANNEL})
+
+
+def _check_category_channels(settings: Settings) -> None:
+    channels = [c.channel for c in settings.categories]
+    reserved = sorted(set(channels) & RESERVED_CHANNELS)
+    if reserved:
+        raise HTTPException(status_code=422, detail=f"{'・'.join(reserved)} は分類の振り分け先に使えません")
+    dup = sorted({c for c in channels if channels.count(c) > 1})
+    if dup:
+        raise HTTPException(
+            status_code=422, detail=f"{'・'.join(dup)} を複数の分類で使っています。分類ごとに分けてください"
+        )
 
 
 @router.put("/settings")
@@ -703,10 +738,15 @@ async def put_settings(settings: Settings, pipeline: PipelineDep) -> Settings:
             detail=f"期限前に知らせる時間（{settings.slack.reminder_before_min} 分）は、"
             f"対応目安（{sla_min:g} 分）より短くしてください",
         )
-    settings = _align_categories(pipeline.store.settings(), settings, pipeline.store.items(limit=100_000))
-    # 受信シミュレータの状態は専用の API（/simulator）でだけ変える。設定画面などが持っている古い値で上書きしない
-    current = pipeline.store.settings().simulator
-    saved = pipeline.store.put_settings(settings.model_copy(update={"simulator": current}))
+    store = pipeline.store
+
+    def save() -> Settings:
+        # 全件を読むので、イベントループを止めないよう別スレッドで行う
+        aligned = _align_categories(store.settings(), settings, store.items(limit=100_000))
+        # 受信シミュレータの状態は専用の API（/simulator）でだけ変える。設定画面などが持っている古い値で上書きしない
+        return store.put_settings(aligned.model_copy(update={"simulator": store.settings().simulator}))
+
+    saved = await asyncio.to_thread(save)
     pipeline.wake.set()
     return saved
 
@@ -803,7 +843,16 @@ async def audit_csv(
         raise HTTPException(status_code=422, detail="期間の始まりが終わりより後になっています")
     lo, hi = audit.day_range(start, end)
     store = pipeline.store
-    events = store.query_events(start=lo, end=hi, item_id=item or None, kinds=kinds or ())
+
+    def build() -> tuple[bytes, int, bool]:
+        # 行数が多いと時間がかかるので、イベントループを止めないよう別スレッドで作る。
+        # 上限を 1 行超えて読み、打ち切ったかどうかを知る
+        events = store.query_events(start=lo, end=hi, item_id=item or None, kinds=kinds or (), limit=AUDIT_MAX_ROWS + 1)
+        truncated = len(events) > AUDIT_MAX_ROWS
+        events = events[:AUDIT_MAX_ROWS]
+        return audit.to_csv(events, encoding), len(events), truncated
+
+    content, rows, truncated = await asyncio.to_thread(build)
     conditions = "・".join(
         x
         for x in (
@@ -811,17 +860,25 @@ async def audit_csv(
             f"件 {item}" if item else "",
             f"種類 {'・'.join(audit.KIND_LABELS[k] for k in kinds)}" if kinds else "",
             "Shift_JIS" if encoding == "shift_jis" else "UTF-8",
+            f"上限 {AUDIT_MAX_ROWS:,} 行で打ち切り" if truncated else "",
         )
         if x
     )
-    # 出力したこと自体も記録に残す
-    store.add_audit_export(conditions, len(events))
+    # 出力したこと自体も記録に残す（打ち切ったことも条件に書く）
+    store.add_audit_export(conditions, rows)
     name = f"jevlab-audit-{datetime.now(audit.TZ):%Y%m%d-%H%M%S}.csv"
+    headers = {"Content-Disposition": f'attachment; filename="{name}"'}
+    if truncated:
+        headers["X-Jevlab-Truncated"] = str(AUDIT_MAX_ROWS)
     return Response(
-        content=audit.to_csv(events, encoding),
+        content=content,
         media_type=f"text/csv; charset={'shift_jis' if encoding == 'shift_jis' else 'utf-8'}",
-        headers={"Content-Disposition": f'attachment; filename="{name}"'},
+        headers=headers,
     )
+
+
+# 監査ログの CSV の行の上限（超えた分は出さず、出力の記録に打ち切ったことを残す）
+AUDIT_MAX_ROWS: Final = 100_000
 
 
 class AuditExport(BaseModel):
