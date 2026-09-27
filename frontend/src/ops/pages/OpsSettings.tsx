@@ -85,18 +85,40 @@ function slaInvalid(sla: Settings['sla']): string | null {
 
 const MAX_ACTIVE = 9
 
+// 振り分けた後の扱い（設定の auto_close・judge_reply の組み合わせを 1 つの選択にする）
+type AfterRoute = 'assign' | 'done' | 'judge'
+const AFTER_ROUTE_LABELS: Record<AfterRoute, string> = {
+  assign: '担当に回す',
+  done: '対応不要として完了',
+  judge: '対応が要るかを Jev が判断',
+}
+const afterRouteOf = (x: { auto_close: boolean; judge_reply: boolean }): AfterRoute =>
+  x.auto_close ? 'done' : x.judge_reply ? 'judge' : 'assign'
+const afterRouteFields = (v: AfterRoute) => ({ auto_close: v === 'done', judge_reply: v === 'judge' })
+
+/**
+ * 分類が想定外の答えになったときの振り分け先（fallback_category）は、利用者に選ばせず自動で決める。
+ * いまの値が有効ならそのまま、外れたら「その他」、なければ「担当に回す」分類にする（自動で完了にする分類は避ける）。
+ */
+function withFallback(s: Settings): Settings {
+  const active = s.categories.filter((x) => x.active)
+  // 想定外の件を黙って完了にしないよう、「担当に回す」分類を優先する
+  const next = active.find((x) => x.key === 'other') ?? active.find((x) => !x.auto_close && !x.judge_reply) ?? active.find((x) => !x.auto_close) ?? active[0]
+  const current = active.find((x) => x.key === s.fallback_category)
+  if ((current && !current.auto_close) || next === undefined) return s
+  return { ...s, fallback_category: next.key }
+}
+
 function categoriesInvalid(d: Settings): string | null {
   const active = d.categories.filter((x) => x.active)
   const bad = d.categories.find((x) => !x.label.trim() || !x.criteria.trim() || !/^#\S+$/.test(x.channel))
   return bad
     ? `分類「${bad.label || '新しい分類'}」: 表示名・説明を入れ、チャンネルは #名前 の形にしてください`
     : active.length === 0
-      ? '使う分類を 1 つ以上にしてください'
+      ? '分類を 1 つ以上にしてください'
       : active.length > MAX_ACTIVE
-        ? `使う分類は ${MAX_ACTIVE} 個までです`
-        : !active.some((x) => x.key === d.fallback_category)
-          ? '受け皿の分類は「使う」にしてください'
-          : null
+        ? `分類は ${MAX_ACTIVE} 個までです`
+        : null
 }
 
 const settingsInvalid = (d: Settings): string | null =>
@@ -118,7 +140,7 @@ export function OpsSettings() {
   const slaError = slaInvalid(sla)
   const catError = categoriesInvalid(draft)
   const setCat = (key: string, patch: Partial<CategoryDef>) =>
-    set((s) => ({ ...s, categories: s.categories.map((x) => (x.key === key ? { ...x, ...patch } : x)) }))
+    set((s) => withFallback({ ...s, categories: s.categories.map((x) => (x.key === key ? { ...x, ...patch } : x)) }))
   const labels: Record<string, string> = meta?.pii_types ?? {}
   const warn = (t: Mode) => {
     const ts = targetStatus(status, t)
@@ -271,88 +293,66 @@ export function OpsSettings() {
         <Threshold label="足りないとみなす確率" value={c.insufficient_at} onChange={(v) => set((s) => ({ ...s, classify: { ...s.classify, insufficient_at: v } }))} note="これ以上なら自動にしない" />
       </Section>
 
-      <Section id="categories" title="分類とチャンネル" desc="説明は Jev が読む。使用済みは削除不可（「使う」を外す）">
+      <Section id="categories" title="分類とチャンネル" desc="Jev は「説明」を読んで分類し、その分類のチャンネルに投稿する">
         <div className="scroll">
           <table className="category-table cards-narrow" data-testid="category-table">
             <thead>
               <tr>
-                <th>表示名</th>
+                <th>分類名</th>
                 <th>説明（Jev が読む）</th>
-                <th>チャンネル</th>
-                <th>使う</th>
-                <th>返信不要</th>
-                <th>返信の要否を判定</th>
-                <th>受け皿</th>
+                <th>投稿先チャンネル</th>
+                <th>振り分けた後</th>
                 <th />
               </tr>
             </thead>
             <tbody>
-              {draft.categories.map((x) => (
-                <tr key={x.key} className={x.active ? undefined : 'muted'}>
-                  <td>
-                    <input aria-label={`${x.label}の表示名`} value={x.label} maxLength={20} onChange={(e) => setCat(x.key, { label: e.target.value })} />
-                  </td>
-                  <td>
-                    <textarea aria-label={`${x.label}の説明`} rows={2} value={x.criteria} maxLength={300} onChange={(e) => setCat(x.key, { criteria: e.target.value })} />
-                  </td>
-                  <td>
-                    <input aria-label={`${x.label}のチャンネル`} value={x.channel} maxLength={40} onChange={(e) => setCat(x.key, { channel: e.target.value })} />
-                  </td>
-                  <td>
-                    <input
-                      type="checkbox"
-                      aria-label={`${x.label}を使う`}
-                      checked={x.active}
-                      disabled={x.key === draft.fallback_category}
-                      onChange={(e) => setCat(x.key, { active: e.target.checked })}
-                    />
-                  </td>
-                  <td>
-                    <input
-                      type="checkbox"
-                      aria-label={`${x.label}は返信不要`}
-                      checked={x.auto_close}
-                      onChange={(e) => setCat(x.key, { auto_close: e.target.checked })}
-                    />
-                  </td>
-                  <td>
-                    <input
-                      type="checkbox"
-                      aria-label={`${x.label}は返信の要否を判定`}
-                      checked={x.judge_reply && !x.auto_close}
-                      disabled={x.auto_close}
-                      onChange={(e) => setCat(x.key, { judge_reply: e.target.checked })}
-                    />
-                  </td>
-                  <td>
-                    <input
-                      type="radio"
-                      name="fallback"
-                      aria-label={`${x.label}を受け皿にする`}
-                      checked={x.key === draft.fallback_category}
-                      disabled={!x.active}
-                      onChange={() => set((s) => ({ ...s, fallback_category: x.key }))}
-                    />
-                  </td>
-                  <td>
-                    {x.key !== draft.fallback_category && (
+              {draft.categories
+                .filter((x) => x.active)
+                .map((x) => (
+                  <tr key={x.key}>
+                    <td>
+                      <input aria-label={`${x.label}の分類名`} value={x.label} maxLength={20} onChange={(e) => setCat(x.key, { label: e.target.value })} />
+                    </td>
+                    <td>
+                      <textarea aria-label={`${x.label}の説明`} rows={2} value={x.criteria} maxLength={300} onChange={(e) => setCat(x.key, { criteria: e.target.value })} />
+                    </td>
+                    <td>
+                      <input aria-label={`${x.label}の投稿先チャンネル`} value={x.channel} maxLength={40} onChange={(e) => setCat(x.key, { channel: e.target.value })} />
+                    </td>
+                    <td>
+                      <select
+                        aria-label={`${x.label}を振り分けた後`}
+                        value={afterRouteOf(x)}
+                        onChange={(e) => setCat(x.key, afterRouteFields(e.target.value as AfterRoute))}
+                      >
+                        {(Object.keys(AFTER_ROUTE_LABELS) as AfterRoute[]).map((v) => (
+                          <option key={v} value={v}>
+                            {AFTER_ROUTE_LABELS[v]}
+                          </option>
+                        ))}
+                      </select>
+                    </td>
+                    <td>
                       <button
                         type="button"
                         className="link-btn"
-                        disabled={used.has(x.key)}
-                        title={used.has(x.key) ? '使用済み（「使う」を外す）' : undefined}
+                        disabled={draft.categories.filter((y) => y.active).length <= 1}
                         onClick={() => {
-                          if (!window.confirm(`分類「${x.label}」を削除しますか？`)) return
-                          set((s) => ({ ...s, categories: s.categories.filter((y) => y.key !== x.key) }))
+                          const usedBefore = used.has(x.key)
+                          const msg = usedBefore
+                            ? `分類「${x.label}」を削除しますか？\n過去の件はこの分類のまま残ります。`
+                            : `分類「${x.label}」を削除しますか？`
+                          if (!window.confirm(msg)) return
+                          // 過去の件で使った分類は、一覧から外すだけにする（件がキーでつながっているため）
+                          set((s) => withFallback(usedBefore ? { ...s, categories: s.categories.map((y) => (y.key === x.key ? { ...y, active: false } : y)) } : { ...s, categories: s.categories.filter((y) => y.key !== x.key) }))
                           void auto.commit()
                         }}
                       >
                         削除
                       </button>
-                    )}
-                  </td>
-                </tr>
-              ))}
+                    </td>
+                  </tr>
+                ))}
             </tbody>
           </table>
         </div>
@@ -365,13 +365,40 @@ export function OpsSettings() {
         >
           ＋ 分類を追加
         </button>
+        {draft.categories.some((x) => !x.active) && (
+          <details className="small">
+            <summary>削除した分類（{draft.categories.filter((x) => !x.active).length}）</summary>
+            <ul>
+              {draft.categories
+                .filter((x) => !x.active)
+                .map((x) => (
+                  <li key={x.key}>
+                    {x.label}{' '}
+                    <button
+                      type="button"
+                      className="link-btn"
+                      disabled={draft.categories.filter((y) => y.active).length >= MAX_ACTIVE}
+                      onClick={() => {
+                        setCat(x.key, { active: true })
+                        void auto.commit()
+                      }}
+                    >
+                      戻す
+                    </button>
+                  </li>
+                ))}
+            </ul>
+          </details>
+        )}
         {catError && <div className="error small">{catError}</div>}
         <p className="note">
-          返信不要: 自動で振り分けた件を Slack に投稿し、完了を書いて ✅ を付けます。
+          振り分けた後
           <br />
-          返信の要否を判定: 件ごとに Jev が判定し、返信の要らない件は返信不要と同じく完了にします。返信の要る件は担当をメンションします。
+          ・担当に回す: 担当を割り当てて Slack でメンションする。
           <br />
-          説明を変えると、閾値の調整は変えた後の件だけで数えます。
+          ・対応不要として完了: Slack に投稿し、完了を書いて ✅ を付ける（お礼など）。
+          <br />
+          ・対応が要るかを Jev が判断: 要る件は担当に回し、要らない件は完了にする（その他など）。
         </p>
       </Section>
 

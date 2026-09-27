@@ -464,11 +464,11 @@ class Settings(BaseModel):
             raise ValueError("分類のキーに none は使えません")
         active = [c for c in self.categories if c.active]
         if not active:
-            raise ValueError("使う分類を 1 つ以上にしてください")
+            raise ValueError("有効な分類を 1 つ以上にしてください")
         if len(active) > MAX_ACTIVE_CATEGORIES:
-            raise ValueError(f"使う分類は {MAX_ACTIVE_CATEGORIES} 個までです（確認の画面の 1〜9 キーに合わせる）")
+            raise ValueError(f"有効な分類は {MAX_ACTIVE_CATEGORIES} 個までです（確認の画面の 1〜9 キーに合わせる）")
         if self.fallback_category not in {c.key for c in active}:
-            raise ValueError("受け皿の分類は、使っている分類から選んでください")
+            raise ValueError("「どれにも当てはまらないとき」の分類は、有効な分類から選んでください")
         return self
 
     def active_categories(self) -> list[CategoryDef]:
