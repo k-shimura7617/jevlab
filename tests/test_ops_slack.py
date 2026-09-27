@@ -655,7 +655,7 @@ async def test_no_reply_category_is_closed_with_a_check_mark(tmp_path: Path) -> 
     # 内容を投稿し、スレッドには書き足さずに ✅ だけ付ける
     # 内容を投稿し、担当は呼ばずにスレッドへ完了を書いて ✅ を付ける
     assert [c for c, _ in api.sent] == ["C0THANKS01", "C0THANKS01"] and "ありがとうございました" in api.sent[0][1]
-    assert api.sent[1][1] == "返信不要のため、自動で対応完了にしました。" and api.threads[1] == "1.0"
+    assert api.sent[1][1] == "対応不要のため完了にしました。" and api.threads[1] == "1.0"
     assert api.reactions == [("C0THANKS01", "1.0", "white_check_mark")]
 
 
@@ -710,7 +710,7 @@ async def test_thanks_decided_in_review_is_closed_without_mention(tmp_path: Path
     assert decided.status == "closed" and decided.auto_closed and decided.assignee is None
     await conn.tick()
     # 完了を書いて ✅ を付けるだけ。メンションはしない
-    assert [t for _, t in api.sent][1:] == ["返信不要のため、自動で対応完了にしました。"]
+    assert [t for _, t in api.sent][1:] == ["対応不要のため完了にしました。"]
     assert api.reactions == [("C0THANKS01", "1.0", "white_check_mark")]
 
 
@@ -738,7 +738,7 @@ async def test_other_is_closed_only_when_no_reply_is_needed(tmp_path: Path) -> N
     quiet = conn.pipeline.store.get(_route_other(conn, 0.1))
     assert quiet.status == "closed" and quiet.auto_closed and quiet.assignee is None
     await conn.tick()
-    assert api.sent[1][1] == "返信不要のため、自動で対応完了にしました。" and len(api.reactions) == 1
+    assert api.sent[1][1] == "対応不要のため完了にしました。" and len(api.reactions) == 1
     # 仕入れの提案など返信の要る件は、担当をメンションする
     reply = conn.pipeline.store.get(_route_other(conn, 0.9))
     assert reply.status == "routed" and not reply.auto_closed
