@@ -110,6 +110,7 @@ flowchart LR
 | `audit.py` | 監査ログの CSV。差出人・メモの本文・個人情報の候補を伏せ、経過の詳しいデータは出さない（[ADR-0026](adr/0026-audit-log-csv-without-content.md)） |
 | `kev_queue.py` | Kev の処理待ち。次の段階で Kev を使う件の数と、最近 20 回の Kev の所要時間の中央値から、処理し終えるまでの見込みを出す（overview の `kev_queue`） |
 | `pii_eval.py` | 個人情報の判定（Kev）の混同行列。人が確認した件だけで、候補ごとと「候補外の残り」を集計する |
+| `scope_draft.py` | 担当範囲の案。担当者が完了した件（人が割り当てた件、既定 10 件以上）の伏せた見出しと分類から、Claude に担当範囲の文を下書きさせる。担当者画面で人が採用する |
 | `sla.py` | エスカレーションの対応目安。営業時間（曜日・時刻・休業日）だけを数える |
 | `slack.py` | 実際の Slack とのつなぎ込み（Socket Mode）。投稿の転送・エスカレーションのスレッド・対応目安前の知らせ・受信の取り込み（[ADR-0013](adr/0013-slack-socket-mode.md)） |
 | `api.py` | `/api/ops/*` の API |
@@ -123,8 +124,10 @@ flowchart LR
   - 相手（上司・同僚・部下・取引先・お客様・友人・家族・指定なし）と場面（チャット・メール・指定なし）を state に入れます。
   - Claude に書き換え案を頼むときのプロンプトもここに置いています。
 - `contract.py`: 契約・規約チェック。本文を条項（第N条・番号・空行）に分け、評価アプリ「契約条項のリスク判定」の質問（自動更新・違約金・責任制限・第三者提供の Noul と、不利さの Score）を条項ごとに 1 回の問い合わせで判定します。やさしい説明は Claude に頼みます。法的助言ではない旨を画面と API の結果に出します。
-- `reply.py`: 返信前チェック。問い合わせと返信の下書きから、質問に答えているか・方針を超えた約束・謝罪（足りない／適切／過剰）・足りない情報（候補ごとの Noul）・言い方（言い方チェックの観点を流用）を 1 回で判定します。個人情報の候補は規則ですべて伏せてから Jev・Claude に送ります。直した案は Claude が作り、判定し直して前後を比べます。
-- `api.py`: `/api/tools/tone*`・`/api/tools/reply*`・`/api/tools/contract*` の API です。
+- `reply.py`: 返信前チェック。問い合わせと返信の下書きから、質問に答えているか・方針を超えた約束・謝罪（足りない／適切／過剰）・足りない情報（候補ごとの Noul）・言い方（言い方チェックの観点を流用）を 1 回で判定します。AI返信案は Claude が作り（ストリーミング）、判定し直して前後を比べます。
+- **個人情報の扱い（[ADR-0028](adr/0028-tools-no-masking-by-default.md)）:** ツールの自由入力は既定で伏せません。各ツールの「個人情報チェック（ローカル）」（`POST /api/tools/pii-check`。規則と Kev だけで、Jev・Claude には送らない）で、本人が【種類】に伏せられます。返信前チェックを件から開いたときは、問い合わせをサーバ側で件の本文から伏せ字にして作ります（画面の値は使わない）。
+- `api.py`: `/api/tools/tone*`・`/api/tools/reply*`・`/api/tools/contract*`・`/api/tools/pii-check` の API です。
+  - ストリーミングは、相手が切断すると `claude` をすぐ止めます（`request.is_disconnected()` を定期的に確かめる）。画面は生成中の操作に「生成を中止しますか？」を出し、OK で接続を切ります。
   - 判定は選んだ接続先で行います。
   - 書き換え案は生成器（Claude）で作ります。モデルは sonnet（既定）と opus だけ（haiku は遅く出力も長いため外した）。
 
@@ -135,9 +138,24 @@ flowchart LR
 - 画面のまとまり:
   - 最初の画面: `/`（運用ダッシュボード `/ops` に移る）
   - 評価ダッシュボード: `/eval`、`/eval/apps/:name`、`/eval/apps/:name/run`
-  - 運用ダッシュボード: `/ops`、`/ops/inbox|pii|review|escalations|channels|staff|connectors|tuning|settings`、`/ops/items/:id`（受付箱 `/ops/inbox?id=` へ移す）
-  - ツール: `/tools/tone`、`/tools/reply`（`?item=` で件の問い合わせを入れる。件の詳細の「返信前チェック」から開く）、`/tools/contract`
+  - 運用ダッシュボード: `/ops`、`/ops/inbox|pii|review|escalations|channels|staff|connectors|tuning|audit|settings`、`/ops/items/:id`（受付箱 `/ops/inbox?id=` へ移す）
+  - ツール: `/tools/tone`、`/tools/reply`（`?item=` で件の問い合わせを入れる。件の詳細の「返信内容の検討」から開く）、`/tools/contract`。`/tools` だけのパスはない
+  - ツールの共通部品: `tools/PiiCheck.tsx`（個人情報チェック）、`tools/Sentences.tsx`（句点で改行）、`tools/common.ts`
 - 運用の画面は 1.5 秒間隔のポーリングで更新します（`ops/state.tsx` の `usePolling`）。
+- 設定・担当者・Slack の欄は自動保存です（`ops/autosave.ts`）。保存中に変えた分は続けて保存し、失敗したらサーバの値に戻してエラーを出し、そのまま移動するときは確認します。
+- 分類の表は、390px 幅ではカード型で並べます（使う・受け皿・削除が隠れないように）。
+
+### 2.7 そのほかのファイル
+
+| パス | 役割 |
+| --- | --- |
+| `scripts/dev.sh` / `serve.sh` / `start.sh` | 起動（開発用・ビルド済み・ビルドして起動）。`.env` があれば `uv run --env-file .env` で読む |
+| `scripts/check_env.py` | `.env` の `TYPESAFE_API_KEY` を、値を表示せずに検証する |
+| `scripts/build_docs.py` | `docs/**/*.md` を `docs/html/`（git の対象外）に書き出す |
+| `scripts/make_bulk_samples.py` | ファイル取り込みの大量の見本（100・500・1000 件、内容はばらばら）を作る |
+| `docs/samples/` | 取り込みの見本（CSV の UTF-8／Shift_JIS、.xlsx、.eml・mbox、Slack のエクスポート）と、検知漏れを試す文面 |
+| `tests/` | pytest。MOCK で動き、Kev には接続しない |
+| `var/`（git の対象外） | 実行時のデータ: `ops.db`・`usage.jsonl`・`runs.jsonl` |
 
 ## 3. 1 件の流れ
 
@@ -236,7 +254,9 @@ flowchart TD
 | `POST /api/ops/items/{id}/miss`、`GET /misses` | 検知漏れの報告・その集計 |
 | `GET /api/ops/audit.csv`、`/audit/exports` | 監査ログの CSV（期間・件・種類・文字コードで絞る）と、書き出しの記録 |
 | `GET /api/ops/pii-eval` | 個人情報の判定の混同行列（人が確認した件だけ） |
-| `POST /api/ops/items/{id}/decide`、`/assign`、`/note`、`/close`、`/retry` | 人の操作（`/close` はエスカレーション中と振り分け済みの件） |
+| `POST /api/ops/items/{id}/decide`、`/assign`、`/note`、`/close`、`/reopen`、`/retry` | 人の操作（`/close` はエスカレーション中と振り分け済みの件。`/reopen` は自動で完了にした件を振り分け済みに戻す＝画面の「自動の完了を取り消す」） |
+| `POST /api/ops/staff/{id}/scope-draft` | 担当範囲の案（Claude） |
+| `POST /api/ops/slack/purge` | Slack の投稿の全削除（このアプリが投稿したものだけ） |
 | `POST /api/ops/bulk/pii`、`/bulk/assign` | まとめて処理（件ごとに成否を返す） |
 | `GET /api/ops/assignment` | 担当者の推定の当たり具合 |
 | `GET/PUT /api/ops/settings` | 運用の設定 |
@@ -245,6 +265,7 @@ flowchart TD
 | `GET /api/tools/tone/meta`、`POST /api/tools/tone`、`/tone/rewrite` | 言い方チェック |
 | `GET /api/tools/reply/meta`、`POST /api/tools/reply`、`/reply/rewrite`、`/reply/draft`、`/reply/suggest/stream` | 返信前チェック（判定・AI返信案。`suggest/stream` は書いた分から 1 行 1 つの JSON で返すストリーミング） |
 | `GET /api/tools/contract/meta`、`POST /api/tools/contract`、`/contract/explain` | 契約・規約チェック（判定・やさしい説明） |
+| `POST /api/tools/pii-check` | ツールの入力の個人情報チェック（規則と Kev。Jev・Claude には送らない） |
 
 エラーの返し方:
 
@@ -259,7 +280,7 @@ flowchart TD
 
 | まとまり | 主な項目 | 既定 |
 | --- | --- | --- |
-| `guard` | 有効・モデルで判定するか（オフで規則だけ）・判定の接続先（Kev / モックのみ。Jev は選べない）・人の確認・候補の閾値・残りの閾値・種類ごとの方針（検出のみ / マスク / ブロック）・ブロックした件の扱い | 有効、モデルで判定、Kev、人の確認あり、0.3、0.5、カード・口座はブロック、他はマスク、人に回す |
+| `guard` | 有効・「Kev で判定する」（オフで規則だけ）・判定の接続先（Kev / モックのみ。Jev は選べない）・人の確認・候補の閾値・残りの閾値・種類ごとの方針（検出のみ / マスク / ブロック）・ブロックした件の扱い | 有効、Kev で判定、Kev、人の確認あり、0.3、0.5、カード・口座はブロック、他はマスク、人に回す |
 | `classify` | 接続先・自動の閾値・確認の閾値・分類ごとの閾値・強い不満 / 緊急をエスカレーションするか・強い不満とみなす確率・僅差とみなす差 | Jev、0.9、0.5、0.35、0.1 |
 | `kev_first` | Kev の確信度が十分なら Jev を呼ばずに確定する | 無効、0.95 |
 | `assign` | 自動割り当て・その閾値（推定した担当の確率）・対応例を渡すか・例の数 | 有効、0.7、渡す、3 |
@@ -273,10 +294,13 @@ flowchart TD
 
 | 変数 | 意味 |
 | --- | --- |
+| `TYPESAFE_API_KEY`、`TYPESAFE_BASE_URL` | Jev の鍵（あるときだけ Jev が使える）・接続先の上書き |
 | `JEVLAB_DEFAULT_TARGET` | 既定の接続先 |
+| `JEVLAB_MOCK=1` | 既定の接続先を MOCK にする（テスト用） |
 | `JEVLAB_BUDGET_USD` | 予算の上限 |
 | `JEVLAB_VAR_DIR` | データの置き場所（既定 `var/`） |
-| `KEV_URL`、`KEV_TIMEOUT_S` | Kev の接続先・タイムアウト（既定 120 秒） |
+| `KEV_URL`、`KEV_API_KEY`、`KEV_MODEL`、`KEV_TIMEOUT_S` | Kev の接続先・鍵・モデル名・タイムアウト（既定 120 秒） |
+| `PORT`、`JEVLAB_DEV`、`JEVLAB_API_URL` | 起動スクリプトの待受ポート（既定 8000）・開発モード（自動再起動）・Vite の中継先 |
 | `JEVLAB_GENERATOR` | 生成器の種類（いまは `claude-cli` だけ） |
 | `JEVLAB_CLAUDE_USE_API_KEY=1` | `claude -p` に API キーを渡して API 課金で動かす |
 | `SLACK_BOT_TOKEN`、`SLACK_APP_TOKEN` | 実際の Slack への送信（xoxb-）と受信（xapp-）。なければその方向は「未設定」 |
@@ -288,7 +312,8 @@ flowchart TD
 | **元の本文を Jev に送らない** | Jev に送るのは `sent_text` だけ（`_classify_and_route` は `sent_text` がないと例外）。個人情報の判定の接続先は型で Kev / モックに限定（`GuardTarget`）。ブロックした件は Jev を通さない |
 | **マスクの漏れを防ぐ** | 重なった候補は結合してから伏せる。方針にない種類は安全側（マスク）。規則で確定した構造的な個人情報は、画面から外されてもサーバ側で戻す（送られてきた内容をそのまま信じない）。一括処理では未確定の候補もマスク |
 | **外に出る見出しから漏らさない** | チャンネル投稿・担当の対応例の見出し（`safe_title`）は、未確定を含むすべての候補を伏せる。対応例は「送ってよいと判断済み」かつ「人が割り当てた」件だけ |
-| **Slack に流すもの** | 転送するのは伏せた見出しの投稿（#cs-… とエスカレーション）と、件の詳細へのリンク（127.0.0.1 なので自分の PC でしか開けない）だけ。お問い合わせ窓口（元の本文）は、チャンネル ID を割り当てても送らない。Slack から受信した本文は、ほかの経路と同じくガードを通す |
+| **Slack に流すもの** | 転送するのは伏せた見出しの投稿（#cs-… とエスカレーション）と、件の詳細へのリンク（127.0.0.1 なので自分の PC でしか開けない）だけ。お問い合わせ窓口（元の本文）は、チャンネル ID を割り当てても送らない。分類のチャンネルに受信用・エスカレーションのチャンネルは指定できず、重複も不可（422）。Slack から受信した本文は、ほかの経路と同じくガードを通す |
+| **ツールの入力** | 自由入力は会社側の文として既定で伏せない。「個人情報チェック（ローカル）」で本人が伏せられる。件から開いた返信前チェックの問い合わせはサーバ側で伏せる（[ADR-0028](adr/0028-tools-no-masking-by-default.md)） |
 | **秘密情報** | 鍵は `.env` に置き、起動時に `uv run --env-file .env` で環境変数として読む。コードは `.env` を直接読まない。鍵はブラウザに返さない |
 | **ネットワーク** | サーバは `127.0.0.1` だけで待ち受ける |
 | **`claude -p` の子プロセス** | `TYPESAFE_*`・`KEV_*`・`ANTHROPIC_API_KEY` を環境変数から外して起動（サブスク枠で動かし、jevlab の鍵を渡さない）。空の一時ディレクトリで起動し、ツールや MCP は無効 |
