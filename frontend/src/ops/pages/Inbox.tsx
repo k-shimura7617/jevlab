@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { Page, useTitle } from '../../shell'
 import { ops, type Item, type Status } from '../api'
 import { Empty, ItemRow } from '../components'
@@ -41,6 +41,16 @@ export function Inbox() {
       matchesWho(i, who) &&
       (!q || `${i.id} ${i.from_name} ${i.subject} ${i.body}`.includes(q)),
   )
+  // 開いている件を完了にしたら、一覧のいちばん上の未完了の件を開く（続けて片づけられるように）
+  const selectedStatus = items.find((i) => i.id === selected)?.status
+  const topOpen = visible.find((i) => i.status !== 'closed' && i.id !== selected)?.id
+  const seen = useRef<{ id: string | null; status: Status | undefined }>({ id: null, status: undefined })
+  useEffect(() => {
+    const was = seen.current
+    seen.current = { id: selected, status: selectedStatus }
+    const justClosed = was.id === selected && was.status !== undefined && was.status !== 'closed' && selectedStatus === 'closed'
+    if (justClosed && topOpen) select(topOpen)
+  }, [selected, selectedStatus, topOpen, select])
   return (
     <Page wide crumbs={[{ label: '運用', to: '/ops' }, { label: '受付箱' }]}>
       <div className="panel-head">
