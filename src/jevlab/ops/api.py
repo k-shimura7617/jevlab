@@ -201,6 +201,8 @@ class Overview(BaseModel):
     kev: KevHealth | None = None
     # Kev の処理待ちと見込み（Kev を使う設定のときだけ）
     kev_queue: KevQueue | None = None
+    # 件で使われている分類（削除できない。画面で削除を押せなくするのに使う）
+    used_categories: list[str] = []
 
 
 def _accuracy(items: list[Item], final: bool) -> Accuracy:
@@ -231,8 +233,9 @@ async def progress(pipeline: PipelineDep) -> Progress:
 @router.get("/overview")
 async def overview(pipeline: PipelineDep) -> Overview:
     store = pipeline.store
+    everything = store.items(limit=10_000)
     # 過去の問い合わせ（試算用）は運用の集計に入れない
-    items = [i for i in store.items(limit=10_000) if not i.backfill]
+    items = [i for i in everything if not i.backfill]
     counts = Counter(i.status for i in items)
     decided = [i for i in items if i.first_route is not None]
     flow = Flow(
@@ -271,7 +274,12 @@ async def overview(pipeline: PipelineDep) -> Overview:
         )
         if uses
         else None,
+        used_categories=sorted(_used_categories(everything)),
     )
+
+
+def _used_categories(items: list[Item]) -> set[str]:
+    return {c for i in items for c in (i.category, (i.expected or {}).get("category")) if isinstance(c, str)}
 
 
 async def _kev_health(uses: list[str]) -> KevHealth:
@@ -669,7 +677,7 @@ def _align_categories(prev: Settings, new: Settings, items: list[Item]) -> Setti
     - 廃止・削除した分類の閾値を消す
     """
     removed = {c.key for c in prev.categories} - {c.key for c in new.categories}
-    used = {i.category for i in items} | {str((i.expected or {}).get("category")) for i in items}
+    used = _used_categories(items)
     if removed & used:
         names = "・".join(prev.category_label(k) for k in sorted(removed & used))
         raise HTTPException(

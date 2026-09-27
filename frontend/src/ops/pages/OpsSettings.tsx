@@ -89,7 +89,7 @@ function categoriesInvalid(d: Settings): string | null {
   const active = d.categories.filter((x) => x.active)
   const bad = d.categories.find((x) => !x.label.trim() || !x.criteria.trim() || !/^#\S+$/.test(x.channel))
   return bad
-    ? `分類「${bad.label || bad.key}」: 表示名・説明を入れ、チャンネルは #名前 の形にしてください`
+    ? `分類「${bad.label || '新しい分類'}」: 表示名・説明を入れ、チャンネルは #名前 の形にしてください`
     : active.length === 0
       ? '使う分類を 1 つ以上にしてください'
       : active.length > MAX_ACTIVE
@@ -104,8 +104,9 @@ const settingsInvalid = (d: Settings): string | null =>
 
 export function OpsSettings() {
   useTitle('運用の設定')
-  const { meta, settingsError } = useOps()
+  const { meta, settingsError, overview } = useOps()
   const { status } = useShell()
+  const used = new Set(overview?.used_categories ?? [])
   // 休業日の欄は入力中の文字列をそのまま持つ（区切りのカンマを打った途端に消えないように）
   const [holidayText, setHolidayText] = useState<string | null>(null)
   const auto = useAutoSave(settingsChanged, mergeSettings, settingsInvalid)
@@ -270,9 +271,9 @@ export function OpsSettings() {
         <Threshold label="足りないとみなす確率" value={c.insufficient_at} onChange={(v) => set((s) => ({ ...s, classify: { ...s.classify, insufficient_at: v } }))} note="これ以上なら自動にしない" />
       </Section>
 
-      <Section id="categories" title="分類とチャンネル" desc="説明は Jev が読む。使った分類は削除できないので「使う」を外す">
+      <Section id="categories" title="分類とチャンネル" desc="説明は Jev が読む。使用済みは削除不可（「使う」を外す）">
         <div className="scroll">
-          <table className="category-table" data-testid="category-table">
+          <table className="category-table cards-narrow" data-testid="category-table">
             <thead>
               <tr>
                 <th>表示名</th>
@@ -338,6 +339,8 @@ export function OpsSettings() {
                       <button
                         type="button"
                         className="link-btn"
+                        disabled={used.has(x.key)}
+                        title={used.has(x.key) ? '使用済み（「使う」を外す）' : undefined}
                         onClick={() => {
                           if (!window.confirm(`分類「${x.label}」を削除しますか？`)) return
                           set((s) => ({ ...s, categories: s.categories.filter((y) => y.key !== x.key) }))

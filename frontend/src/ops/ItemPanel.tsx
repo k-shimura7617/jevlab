@@ -128,10 +128,6 @@ function QuickActions({
   )
 }
 
-/**
- * 振り分け済みの件の対応完了。最終の分類は、いまの分類を最初から選んでおく。
- * 触らずに完了すれば「分類は合っていた」、切り替えれば「修正した」として記録し、閾値の調整の正解に使う。
- */
 /** 振り分け済みの件の担当（自動で割り当てた担当を人が変える）。 */
 function RoutedAssignee({ item, busy, run }: { item: Item; busy: boolean; run: (f: () => Promise<unknown>) => void }) {
   const { settings } = useOps()
@@ -155,6 +151,10 @@ function RoutedAssignee({ item, busy, run }: { item: Item; busy: boolean; run: (
   )
 }
 
+/**
+ * 振り分け済みの件の対応完了。最終の分類は、いまの分類を最初から選んでおく。
+ * 触らずに完了すれば「分類は合っていた」、切り替えれば「修正した」として記録し、閾値の調整の正解に使う。
+ */
 function CloseRouted({ item, meta, busy, run }: { item: Item; meta: Meta; busy: boolean; run: (f: () => Promise<unknown>) => void }) {
   const [category, setCategory] = useState(item.category ?? '')
   return (

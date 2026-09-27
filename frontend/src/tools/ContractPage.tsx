@@ -20,7 +20,7 @@ const SAMPLE = `第1条（目的）
 第6条（責任の制限）
 当社が利用者に対して負う損害賠償責任は、直接かつ現実に生じた通常の損害に限り、当該損害の発生した月に利用者が当社に支払った利用料金の額を上限とする。`
 
-const LEVEL_LABELS: Record<ClauseLevel, string> = { high: '要確認', mid: '注意', low: '問題なし' }
+const LEVEL_LABELS: Record<ClauseLevel, string> = { high: '要見直し', mid: '注意', low: '問題なし' }
 
 function ClauseCard({ c, meta, explanation }: { c: ClauseResult; meta: ContractMeta; explanation?: Explanation }) {
   return (
@@ -171,7 +171,7 @@ export function ContractPage() {
               </span>
             </div>
             <p className="small">
-              <span className="clause-tag lv-high">要確認 {r.counts.high}</span> <span className="clause-tag lv-mid">注意 {r.counts.mid}</span>{' '}
+              <span className="clause-tag lv-high">要見直し {r.counts.high}</span> <span className="clause-tag lv-mid">注意 {r.counts.mid}</span>{' '}
               <span className="clause-tag lv-low">問題なし {r.counts.low}</span>
               {r.truncated && <span className="warn-text"> 先頭の {r.clauses.length} 条だけ判定しました</span>}
             </p>
@@ -180,7 +180,7 @@ export function ContractPage() {
               <button type="button" className="rw-btn" disabled={exBusy || !risky.length || stale} onClick={explain}>
                 {exBusy ? `説明を作成中…（${elapsed} 秒）` : `やさしく説明（Claude・${risky.length} 条）`}
               </button>
-              {exModel && <span className="muted small">{exModel}</span>}
+              <span className="muted small">{exModel ?? meta?.default_model ?? ''}</span>
             </div>
             {exError && <div className="error small">{exError}</div>}
             <ol className="clause-list">

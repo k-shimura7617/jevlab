@@ -209,7 +209,6 @@ function StatusLine() {
 
 const navCls = ({ isActive }: { isActive: boolean }) => (isActive ? 'active' : undefined)
 
-/** 左ペインの 1 まとまり。見出し（ダッシュボード）だけを常に出し、個別の画面は一段下げて折りたためるようにする。 */
 const NAV_OPEN_KEY = 'jevlab.navOpen'
 
 /** サイドバーのまとまりの開閉（id → 開いているか）。読めないときは空（既定の開き方にする）。 */
@@ -233,6 +232,7 @@ function saveNavOpen(id: string, open: boolean) {
   }
 }
 
+/** 左ペインの 1 まとまり。見出し（ダッシュボード）だけを常に出し、個別の画面は一段下げて折りたためるようにする。 */
 function NavGroup({
   id,
   title,
