@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import time
 from collections.abc import AsyncIterator, Iterator
 from pathlib import Path
 from typing import Any
@@ -59,13 +60,14 @@ def test_verdicts() -> None:
     assert apology.level == "bad" and apology.note == "足りない"
 
 
-def test_reply_api_masks_pii_before_judging(client: TestClient) -> None:
+def test_reply_api_sends_free_text_as_typed(client: TestClient) -> None:
+    # ツールの自由入力は会社側の文なので、既定では伏せない（ADR 0028。伏せるかは個人情報チェックで本人が決める）
     meta = client.get("/api/tools/reply/meta").json()
     assert meta["default_policy"] == reply.DEFAULT_POLICY and "order_id" in meta["missing"]
     res = client.post("/api/tools/reply?target=mock", json={"inquiry": INQUIRY, "draft": DRAFT})
     assert res.status_code == 200, res.text
     body = res.json()
-    assert "090-1111-2222" not in body["sent_inquiry"] and "【電話番号】" in body["sent_inquiry"]
+    assert body["sent_inquiry"] == INQUIRY
     assert {c["id"] for c in body["checks"]} >= {"answers", "overpromise", "apology"}
     assert client.post("/api/tools/reply?target=mock", json={"inquiry": " ", "draft": DRAFT}).status_code == 422
 
@@ -80,7 +82,7 @@ class FakeGenerator:
         return GeneratedText("", self.structured, "claude-test", 5.0, 0.001, 10, 5)
 
 
-def test_rewrite_sends_masked_text_and_policy(client: TestClient, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_rewrite_sends_text_and_policy(client: TestClient, monkeypatch: pytest.MonkeyPatch) -> None:
     fake = FakeGenerator(
         {
             "rewritten": "交換について確認し、【期限を記入】までにご連絡します。",
@@ -94,13 +96,13 @@ def test_rewrite_sends_masked_text_and_policy(client: TestClient, monkeypatch: p
     assert res.status_code == 200, res.text
     assert res.json()["rewritten"].startswith("交換について")
     prompt = fake.requests[0].prompt
-    assert "090-1111-2222" not in prompt and reply.DEFAULT_POLICY in prompt and "返金を確約" in prompt
+    assert "090-1111-2222" in prompt and reply.DEFAULT_POLICY in prompt and "返金を確約" in prompt
     assert fake.requests[0].schema == tone.REWRITE_SCHEMA
     monkeypatch.setattr(tools_api, "make_generator", lambda model: FakeGenerator({"changes": []}))
     assert client.post("/api/tools/reply/rewrite", json=body).status_code == 502
 
 
-def test_draft_sends_masked_inquiry_and_policy(client: TestClient, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_draft_sends_inquiry_and_policy(client: TestClient, monkeypatch: pytest.MonkeyPatch) -> None:
     fake = FakeGenerator(
         {
             "rewritten": "ご連絡ありがとうございます。\n【期限を記入】までにご連絡します。",
@@ -112,7 +114,7 @@ def test_draft_sends_masked_inquiry_and_policy(client: TestClient, monkeypatch: 
     assert res.status_code == 200, res.text
     assert res.json()["rewritten"].startswith("ご連絡ありがとうございます")
     prompt = fake.requests[0].prompt
-    assert "090-1111-2222" not in prompt and reply.DEFAULT_POLICY in prompt
+    assert "090-1111-2222" in prompt and reply.DEFAULT_POLICY in prompt
     assert fake.requests[0].system == reply.DRAFT_SYSTEM
     monkeypatch.setattr(tools_api, "make_generator", lambda model: FakeGenerator({"changes": []}))
     assert client.post("/api/tools/reply/draft", json={"inquiry": INQUIRY}).status_code == 502
@@ -145,9 +147,9 @@ def test_suggest_stream_sends_text_as_it_is_written(client: TestClient, monkeypa
     lines = _lines(res)
     assert [x["text"] for x in lines if x["type"] == "text"] == ["お問い合わせ", "ありがとうございます。"]
     assert lines[-1]["type"] == "done" and lines[-1]["model"] == "claude-test"
-    # 下書きがなければ問い合わせから書く。個人情報の候補は伏せて送る
+    # 下書きがなければ問い合わせから書く
     req = fake.requests[0]
-    assert req.system == reply.DRAFT_STREAM_SYSTEM and "090-1111-2222" not in req.prompt and req.schema is None
+    assert req.system == reply.DRAFT_STREAM_SYSTEM and INQUIRY in req.prompt and req.schema is None
     client.post("/api/tools/reply/suggest/stream", json={"inquiry": INQUIRY, "draft": DRAFT})
     assert fake.requests[1].system == reply.REWRITE_STREAM_SYSTEM and "JSON" not in fake.requests[1].system
 
@@ -157,3 +159,62 @@ def test_suggest_stream_reports_errors_in_the_stream(client: TestClient, monkeyp
     lines = _lines(client.post("/api/tools/reply/suggest/stream", json={"inquiry": INQUIRY}))
     assert lines[0] == {"type": "text", "text": "途中"} and lines[-1]["type"] == "error"
     assert "止まりました" in lines[-1]["message"]
+
+
+def _item_with_pii(client: TestClient) -> str:
+    """電話番号を含む件を受け付け、人が「担当」を氏名として足して確定する。"""
+    res = client.post(
+        "/api/ops/ingest",
+        json={
+            "channel": "mail",
+            "from_name": "テスト",
+            "subject": "",
+            "body": "担当の件です。電話は 090-3333-4444 です",
+        },
+    )
+    item_id = res.json()["id"]
+    for _ in range(100):
+        item = client.get(f"/api/ops/items/{item_id}").json()["item"]
+        if item["status"] == "pii_review":
+            break
+        time.sleep(0.05)
+    start = item["text"].index("担当")
+    added = {"start": start, "end": start + 2, "type": "person_name", "text": "担当", "source": "human"}
+    res = client.post(f"/api/ops/items/{item_id}/pii", json={"spans": [*item["pii"], added], "action": "continue"})
+    assert res.status_code == 200, res.text
+    return item_id
+
+
+def test_item_inquiry_is_built_and_masked_on_the_server(client: TestClient, monkeypatch: pytest.MonkeyPatch) -> None:
+    item_id = _item_with_pii(client)
+    loaded = client.get(f"/api/tools/reply/item/{item_id}").json()["inquiry"]
+    assert "090-3333-4444" not in loaded and "【電話番号】" in loaded and "【氏名】" in loaded
+    # 画面から別の問い合わせが来ても、件の本文（伏せ字済み）を使う
+    res = client.post(
+        "/api/tools/reply?target=mock",
+        json={"inquiry": "偽の問い合わせ 090-0000-0000", "item_id": item_id, "draft": DRAFT},
+    )
+    assert res.status_code == 200, res.text
+    assert res.json()["sent_inquiry"] == loaded
+    fake = FakeStream(["案"])
+    monkeypatch.setattr(tools_api, "make_stream_generator", lambda model: fake)
+    client.post("/api/tools/reply/suggest/stream", json={"inquiry": "偽", "item_id": item_id})
+    assert loaded in fake.requests[0].prompt and "090-3333-4444" not in fake.requests[0].prompt
+    assert client.get("/api/tools/reply/item/T-9999").status_code == 404
+
+
+def test_pii_check_is_local_and_can_be_rules_only(client: TestClient) -> None:
+    text = "山田様、明日 090-5555-6666 にお電話します。"
+    settings = client.get("/api/ops/settings").json()
+    settings["guard"]["use_model"] = False
+    assert client.put("/api/ops/settings", json=settings).status_code == 200
+    body = client.post("/api/tools/pii-check", json={"text": text}).json()
+    assert body["used_model"] is False
+    assert {s["type"] for s in body["spans"]} >= {"phone", "person_name"}
+    assert "090-5555-6666" not in body["masked_text"] and "【電話番号】" in body["masked_text"]
+    assert body["labels"]["phone"] == "電話番号"
+    # Kev（ここでは MOCK）を使う設定なら、氏名などの候補をモデルに聞く
+    settings["guard"]["use_model"] = True
+    client.put("/api/ops/settings", json=settings)
+    assert client.post("/api/tools/pii-check", json={"text": text}).json()["used_model"] is True
+    assert client.post("/api/tools/pii-check", json={"text": ""}).status_code == 422

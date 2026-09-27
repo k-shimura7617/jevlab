@@ -155,6 +155,24 @@ async function call<T>(method: 'GET' | 'POST', path: string, payload?: unknown):
   return data as T
 }
 
+export interface PiiCheckSpan {
+  start: number
+  end: number
+  type: string
+  text: string
+  source: string
+  score: number | null
+  confirmed: boolean
+}
+
+export interface PiiCheckResult {
+  spans: PiiCheckSpan[]
+  masked_text: string
+  used_model: boolean
+  model_name: string | null
+  labels: Record<string, string>
+}
+
 export interface SuggestDone {
   model: string
   latency_ms: number
@@ -166,7 +184,14 @@ export interface SuggestDone {
  * signal で中止すると、読み取りをやめて接続を切る（サーバ側の生成も止まる）。
  */
 export async function suggestReplyStream(
-  body: { inquiry: string; draft: string; policy: string; findings: { title: string; detail: string }[]; model: ClaudeModel },
+  body: {
+    inquiry: string
+    item_id: string | null
+    draft: string
+    policy: string
+    findings: { title: string; detail: string }[]
+    model: ClaudeModel
+  },
   onText: (text: string) => void,
   signal?: AbortSignal,
 ): Promise<SuggestDone> {
@@ -228,8 +253,12 @@ export const tools = {
     model: ClaudeModel
   }) => call<RewriteResult>('POST', '/tone/rewrite', body),
   replyMeta: () => call<ReplyMeta>('GET', '/reply/meta'),
-  reply: (target: Mode, body: { inquiry: string; draft: string; policy: string }) =>
+  reply: (target: Mode, body: { inquiry: string; item_id: string | null; draft: string; policy: string }) =>
     call<ReplyResult>('POST', `/reply?target=${encodeURIComponent(target)}`, body),
+  // 件から開いたときの問い合わせ（サーバで伏せ字にしたもの）
+  replyItem: (itemId: string) => call<{ id: string; inquiry: string }>('GET', `/reply/item/${encodeURIComponent(itemId)}`),
+  // ローカルの個人情報チェック（規則と Kev。Jev・Claude には送らない）
+  piiCheck: (text: string) => call<PiiCheckResult>('POST', '/pii-check', { text }),
   contractMeta: () => call<ContractMeta>('GET', '/contract/meta'),
   contract: (target: Mode, text: string) => call<ContractResult>('POST', `/contract?target=${encodeURIComponent(target)}`, { text }),
   explain: (clauses: { index: number; text: string; level: ClauseLevel; flags: string[] }[], model: ClaudeModel) =>

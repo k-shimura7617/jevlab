@@ -120,3 +120,11 @@ h2.inline { margin: 0; }
   .reply-send { position: absolute; right: 16px; margin: 0; }
 }
 .btn.judge-btn { text-align: center; }
+
+/* 個人情報チェック（ローカル）。結果はモーダルで出し、入力欄の大きさ・位置を変えない */
+.label-row { margin: 0; align-items: center; }
+.pii-check-btn { padding: 2px 10px; font-size: 12px; }
+.masked-badge { padding: 1px 8px; border-radius: 999px; background: var(--ok-soft); color: var(--ok); }
+.pii-check-text { max-height: 240px; overflow: auto; white-space: pre-wrap; padding: 8px 10px; border: 1px solid var(--line); border-radius: 6px; font-size: 13px; line-height: 1.7; }
+.pii-check-text mark { background: var(--warn-soft); color: inherit; border-radius: 3px; padding: 0 2px; }
+.pii-check-list { max-height: 120px; overflow: auto; margin: 8px 0; padding-left: 18px; }

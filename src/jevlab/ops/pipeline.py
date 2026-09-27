@@ -390,6 +390,36 @@ class Pipeline:
             return None
         return self._apply_pii(item, judged, settings, force_block=False, actor="system")
 
+    async def check_pii(self, text: str) -> tuple[list[Span], target.Target | None]:
+        """ツール向けのローカルの個人情報チェック。件は作らず、Jev にも送らない。
+
+        規則で候補を拾い、設定で Kev を使うときだけ、氏名などの候補を Kev に聞く。
+        Kev に届かないときは規則だけで返す（候補はすべて個人情報として扱う）。
+        戻り値は（候補、聞いた接続先。規則だけなら None）。
+        """
+        g = self.store.settings().guard
+        spans = detect(text)
+        ask = [i for i, s in enumerate(spans) if s.type not in STRUCTURED]
+        rules_only = [s.model_copy(update={"confirmed": True}) for s in spans]
+        # 接続先は Kev か MOCK に限られる（GuardSettings.target）。Jev には送らない
+        if not (g.use_model and ask):
+            return rules_only, None
+        try:
+            views, _, _, _ = await self._ask(
+                g.target, "tools-pii-check", oq.guard_state(text, spans), oq.guard_questions(spans, ask)
+            )
+        except (TargetConnectionError, TargetUnavailableError) as e:
+            log.warning("個人情報チェックで Kev に届かないため規則だけで判定します: %s", e)
+            return rules_only, None
+
+        def judged(i: int, s: Span) -> Span:
+            if i not in ask:
+                return s.model_copy(update={"confirmed": True})
+            score = views[oq.candidate_id(i)].value or 0.0
+            return s.model_copy(update={"score": score, "confirmed": score >= g.candidate_threshold})
+
+        return [judged(i, s) for i, s in enumerate(spans)], g.target
+
     async def _guard_with_model(self, item: Item, spans: list[Span], g: GuardSettings) -> tuple[list[Span], float]:
         """形で決まらない候補（氏名など）と、候補外の残りを Kev に聞く。"""
         ask = [i for i, s in enumerate(spans) if s.type not in STRUCTURED]

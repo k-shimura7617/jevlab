@@ -24,6 +24,7 @@ from typesafe_sdk import Noul, Score
 from jevlab.core.client import Question
 from jevlab.core.engine import AnswerView
 from jevlab.core.generator import ClaudeModel
+from jevlab.ops.models import Item
 from jevlab.ops.pii import detect, mask_all
 from jevlab.tools import tone
 
@@ -135,9 +136,13 @@ def questions() -> dict[str, Question]:
     return {**{c.id: c.question for c in CHECKS}, APOLOGY_ID: APOLOGY_QUESTION, **missing}
 
 
-def mask(text: str) -> str:
-    """規則で拾った個人情報の候補をすべて伏せる（人が確認しないので安全側）。"""
-    return mask_all(text, detect(text))
+def item_inquiry(item: Item) -> str:
+    """運用の件から開いたときの問い合わせ。受付の確認で決めた個人情報（人が足した分も含む）と、規則の候補をすべて伏せる。
+
+    ツールの自由入力は会社側の文なので既定では伏せない（ADR 0028）。
+    件の本文だけは受付のガードと同じ扱いにし、画面から来た値は使わない。
+    """
+    return mask_all(item.text, [*item.pii, *detect(item.text)])
 
 
 def state(inquiry: str, draft: str, policy: str) -> dict[str, object]:
@@ -173,7 +178,7 @@ class ReplyResult(BaseModel):
     verdict_note: str
     checks: list[CheckResult]
     missing: list[MissingItem]
-    # 判定に送った本文（個人情報の候補を伏せたもの）
+    # 判定に送った本文（件から開いたときは伏せ字にした問い合わせ）
     sent_inquiry: str
     sent_draft: str
     model: str
@@ -294,14 +299,19 @@ DRAFT_STREAM_SYSTEM: Final = DRAFT_SYSTEM.replace("- changes には、案で気�
 )
 
 
+# 運用の件から開いたときの件の ID。あれば問い合わせはサーバ側で件の本文から作る（item_inquiry）
+ItemId = Annotated[str | None, Field(max_length=20)]
+
+
 class DraftRequest(BaseModel):
     inquiry: Text
+    item_id: ItemId = None
     policy: Policy = ""
     model: ClaudeModel = "sonnet"
 
 
 def draft_prompt(req: DraftRequest) -> str:
-    return f"会社の方針:\n{req.policy or DEFAULT_POLICY}\n\nお客様の問い合わせ:\n<<<\n{mask(req.inquiry)}\n>>>"
+    return f"会社の方針:\n{req.policy or DEFAULT_POLICY}\n\nお客様の問い合わせ:\n<<<\n{req.inquiry}\n>>>"
 
 
 class Finding(BaseModel):
@@ -313,6 +323,7 @@ class SuggestRequest(BaseModel):
     """AI返信案。下書きがあれば直した案（指摘を渡す）、なければ問い合わせから書いた案。"""
 
     inquiry: Text
+    item_id: ItemId = None
     draft: Annotated[str, StringConstraints(strip_whitespace=True, max_length=MAX_CHARS)] = ""
     policy: Policy = ""
     findings: list[Finding] = Field(default_factory=list, max_length=20)
@@ -322,14 +333,22 @@ class SuggestRequest(BaseModel):
 def suggest_system_and_prompt(req: SuggestRequest) -> tuple[str, str]:
     if req.draft:
         rewrite = RewriteRequest(
-            inquiry=req.inquiry, draft=req.draft, policy=req.policy, findings=req.findings, model=req.model
+            inquiry=req.inquiry,
+            item_id=req.item_id,
+            draft=req.draft,
+            policy=req.policy,
+            findings=req.findings,
+            model=req.model,
         )
         return REWRITE_STREAM_SYSTEM, rewrite_prompt(rewrite)
-    return DRAFT_STREAM_SYSTEM, draft_prompt(DraftRequest(inquiry=req.inquiry, policy=req.policy, model=req.model))
+    return DRAFT_STREAM_SYSTEM, draft_prompt(
+        DraftRequest(inquiry=req.inquiry, item_id=req.item_id, policy=req.policy, model=req.model)
+    )
 
 
 class RewriteRequest(BaseModel):
     inquiry: Text
+    item_id: ItemId = None
     draft: Text
     policy: Policy = ""
     findings: list[Finding] = Field(default_factory=list, max_length=20)
@@ -341,6 +360,6 @@ def rewrite_prompt(req: RewriteRequest) -> str:
     return (
         f"会社の方針:\n{req.policy or DEFAULT_POLICY}\n\n"
         f"判定で指摘された点:\n{findings}\n\n"
-        f"お客様の問い合わせ:\n<<<\n{mask(req.inquiry)}\n>>>\n\n"
-        f"返信の下書き:\n<<<\n{mask(req.draft)}\n>>>"
+        f"お客様の問い合わせ:\n<<<\n{req.inquiry}\n>>>\n\n"
+        f"返信の下書き:\n<<<\n{req.draft}\n>>>"
     )

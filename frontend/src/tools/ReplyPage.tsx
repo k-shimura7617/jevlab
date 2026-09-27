@@ -6,6 +6,7 @@ import { ops, type Item } from '../ops/api'
 import { bodyFitsMailto, canMail, replyHref } from '../ops/mail'
 import { Page, useShell, useTitle } from '../shell'
 import { tools, type Level, type ReplyCheck, type ReplyMeta, type ReplyResult, suggestReplyStream, type SuggestDone } from './api'
+import { PiiCheckButton } from './PiiCheck'
 import { Hint } from '../components/hint'
 import { useElapsed } from './common'
 import { Sentences } from './Sentences'
@@ -128,19 +129,18 @@ export function ReplyPage() {
       .then(setMeta)
       .catch((e: unknown) => setError(errorMessage(e)))
   }, [])
-  // エスカレーションから開いたときは、その件の問い合わせ（個人情報を伏せて Jev に送った本文）を入れる
+  // 運用の件から開いたときは、その件の問い合わせを入れる。
+  // 伏せ字はサーバが受付の確認どおりに作る（判定・AI返信案も item_id でサーバ側の本文を使う）
   useEffect(() => {
     // 件なしで開き直したら、前の件（返信の宛先）を残さない
     if (!itemId) {
       setItem(null)
       return
     }
-    ops
-      .item(itemId)
-      .then(({ item }) => {
+    Promise.all([ops.item(itemId), tools.replyItem(itemId)])
+      .then(([{ item }, masked]) => {
         setItem(item)
-        if (item.sent_text === null) setError(`${item.id} は個人情報のため Jev に送っていないので、ここでは使えません`)
-        else setInquiry(item.sent_text)
+        setInquiry(masked.inquiry)
       })
       .catch((e: unknown) => setError(errorMessage(e)))
   }, [itemId])
@@ -189,7 +189,7 @@ export function ReplyPage() {
     generation.current += 1
     const input = { inquiry: inquiry.trim(), draft: draft.trim() }
     tools
-      .reply(target, { ...input, policy: policyText })
+      .reply(target, { ...input, item_id: itemId, policy: policyText })
       .then((result) => {
         setJudged({ ...input, result })
         setSuggested(null)
@@ -218,6 +218,7 @@ export function ReplyPage() {
     suggestReplyStream(
       {
         inquiry: inquiry.trim(),
+        item_id: itemId,
         draft: draft.trim(),
         policy: policyText,
         findings: fresh ? findingsOf(fresh.result) : [],
@@ -247,7 +248,7 @@ export function ReplyPage() {
     setAfterBusy(true)
     setRwError(null)
     tools
-      .reply(target, { inquiry: judged.inquiry, draft: fixed.trim(), policy: policyText })
+      .reply(target, { inquiry: judged.inquiry, item_id: itemId, draft: fixed.trim(), policy: policyText })
       .then((result) => {
         if (gen === generation.current) setAfter({ draft: fixed.trim(), result })
       })
@@ -286,13 +287,34 @@ export function ReplyPage() {
               例
             </button>
           </div>
-          <label className="small" htmlFor="reply-inquiry">
-            お客様の問い合わせ
-          </label>
-          <textarea id="reply-inquiry" rows={5} maxLength={meta?.max_chars ?? 4000} value={inquiry} onChange={(e) => setInquiry(e.target.value)} />
-          <label className="small" htmlFor="reply-draft">
-            返信の下書き
-          </label>
+          <div className="row label-row">
+            <label className="small" htmlFor="reply-inquiry">
+              お客様の問い合わせ
+            </label>
+            <span className="spacer" />
+            {itemId ? (
+              <span className="masked-badge small" data-testid="masked-badge">
+                伏せ字済み（受付の確認どおり）
+              </span>
+            ) : (
+              <PiiCheckButton label="問い合わせ" text={inquiry} onMask={setInquiry} />
+            )}
+          </div>
+          <textarea
+            id="reply-inquiry"
+            rows={5}
+            maxLength={meta?.max_chars ?? 4000}
+            value={inquiry}
+            readOnly={itemId !== null}
+            onChange={(e) => setInquiry(e.target.value)}
+          />
+          <div className="row label-row">
+            <label className="small" htmlFor="reply-draft">
+              返信の下書き
+            </label>
+            <span className="spacer" />
+            <PiiCheckButton label="下書き" text={draft} onMask={setDraft} />
+          </div>
           <textarea
             id="reply-draft"
             rows={6}
