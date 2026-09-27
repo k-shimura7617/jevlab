@@ -145,7 +145,9 @@ export function KevDownBanner() {
   if (!kev || kev.available || !kev.uses.length) return null
   return (
     <div className="warn-box" role="alert" data-testid="kev-down">
-      Kev（{kev.endpoint}）に接続できません。{kev.uses.join('・')}が止まっています。Kev を起動してください
+      Kev（{kev.endpoint}）に接続できません。
+      <br />
+      {kev.uses.join('・')}が止まっています。Kev を起動してください。
     </div>
   )
 }

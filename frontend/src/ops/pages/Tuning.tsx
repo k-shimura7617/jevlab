@@ -342,7 +342,11 @@ export function Tuning() {
             {st.pairs.length > 0 && (
               <>
                 <h3>取り違えの多い組</h3>
-                <p className="muted small">推定 → 実際。担当範囲を見直す手がかりです。</p>
+                <p className="muted small">
+                  左が推定、右が実際の担当です。
+                  <br />
+                  担当範囲を見直すときに使います。
+                </p>
                 <ul className="pairs">
                   {st.pairs.map((p) => (
                     <li key={`${p.suggested}-${p.actual}`}>
