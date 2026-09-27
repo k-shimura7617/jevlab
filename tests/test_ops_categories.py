@@ -143,3 +143,38 @@ def test_other_judges_whether_a_reply_is_needed_by_default() -> None:
         del c["judge_reply"]
     assert Settings.model_validate(saved).judges_reply("other")
     assert "needs_reply" in oq.classify_questions({}, s.categories)
+
+
+def test_category_channels_cannot_be_reserved_or_shared(client: TestClient) -> None:
+    s = client.get("/api/ops/settings").json()
+    for reserved in ("#お問い合わせ窓口", "#cs-エスカレーション"):
+        bad = [dict(c, channel=reserved) if c["key"] == "inquiry" else c for c in s["categories"]]
+        res = _put_categories(client, bad)
+        assert res.status_code == 422 and "振り分け先に使えません" in res.text
+    shared = [dict(c, channel="#cs-クレーム") if c["key"] == "inquiry" else c for c in s["categories"]]
+    res = _put_categories(client, shared)
+    assert res.status_code == 422 and "複数の分類" in res.text
+
+
+def test_renaming_onto_an_existing_slack_mapping_is_rejected(client: TestClient) -> None:
+    s = client.get("/api/ops/settings").json()
+    # 使っていないチャンネル名にも割り当てが残っている（古い設定など）
+    s["slack"]["channel_map"] = {"#cs-クレーム": "C0COMPLAIN1", "#cs-苦情": "C0OLD00001"}
+    client.put("/api/ops/settings", json=s)
+    renamed = [dict(c, channel="#cs-苦情") if c["key"] == "complaint" else c for c in s["categories"]]
+    res = _put_categories(client, renamed)
+    assert res.status_code == 422 and "#cs-苦情" in res.text
+    # 割り当ては消えていない
+    assert client.get("/api/ops/settings").json()["slack"]["channel_map"]["#cs-苦情"] == "C0OLD00001"
+
+
+def test_retiring_a_category_keeps_its_threshold(client: TestClient) -> None:
+    s = client.get("/api/ops/settings").json()
+    s["classify"]["label_thresholds"] = {"thanks": 0.72}
+    client.put("/api/ops/settings", json=s)
+    retired = [dict(c, active=c["key"] != "thanks") for c in s["categories"]]
+    saved = _put_categories(client, retired).json()
+    assert saved["classify"]["label_thresholds"] == {"thanks": 0.72}
+    # 使うに戻すと、調整した値がそのまま使える
+    restored = _put_categories(client, s["categories"]).json()
+    assert restored["classify"]["label_thresholds"] == {"thanks": 0.72}

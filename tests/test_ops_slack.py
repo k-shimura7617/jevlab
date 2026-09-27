@@ -30,6 +30,8 @@ class FakeApi:
         self.auth_calls = 0
         self.reactions: list[tuple[str, str, str]] = []
         self.deleted: list[str] = []
+        # 同じボットが jevlab 以外の用途で投稿したメッセージ（消してはいけない）
+        self.foreign: list[tuple[str, str]] = []
         self.undeletable: set[str] = set()
         self.fail_reaction: SlackSendError | None = None
 
@@ -63,13 +65,14 @@ class FakeApi:
             raise self.fail_reaction
         self.reactions.append((channel, ts, name))
 
-    def own_messages(self, channel: str, bot_user: str) -> list[str]:
+    def own_messages(self, channel: str, bot_user: str) -> list[tuple[str, str | None]]:
         mine = [
             (f"{i + 1}.0", th)
             for i, ((c, _), th) in enumerate(zip(self.sent, self.threads, strict=True))
             if c == channel and f"{i + 1}.0" not in self.deleted
         ]
-        return [ts for ts, th in mine if th is not None] + [ts for ts, th in mine if th is None]
+        mine += [(ts, None) for c, ts in self.foreign if c == channel]
+        return [(ts, th) for ts, th in mine if th is not None] + [(ts, th) for ts, th in mine if th is None]
 
     def delete_message(self, channel: str, ts: str) -> bool:
         if ts in self.undeletable:
@@ -620,7 +623,7 @@ def test_own_messages_ignores_join_notices() -> None:
 
     api = SdkSlackApi.__new__(SdkSlackApi)
     api.client = Client()  # type: ignore[assignment]
-    assert api.own_messages("C1", "UBOT") == ["2.0"]
+    assert api.own_messages("C1", "UBOT") == [("2.0", None)]
 
 
 def test_purge_needs_mapped_channels(tmp_path: Path) -> None:
@@ -741,3 +744,75 @@ async def test_other_is_closed_only_when_no_reply_is_needed(tmp_path: Path) -> N
     assert reply.status == "routed" and not reply.auto_closed
     await conn.tick()
     assert "<@U0SATO001>" in api.sent[-1][1] and len(api.reactions) == 1
+
+
+@pytest.mark.anyio
+async def test_purge_leaves_other_posts_of_the_same_bot(tmp_path: Path) -> None:
+    api = FakeApi()
+    conn = make(tmp_path, api, None, outbound=True, channel_map={ESCALATION_CHANNEL: C_ESC})
+    with_staff(conn)
+    await conn.tick()
+    escalate(conn)
+    await conn.tick()
+    # 同じボットで jevlab 以外の用途に投稿したもの
+    api.foreign = [(C_ESC, "99.0")]
+    conn.start_purge()
+    assert conn._purge_task is not None
+    await conn._purge_task
+    assert "99.0" not in api.deleted and sorted(api.deleted) == ["1.0", "2.0"]
+
+
+class FailingDeleteApi(FakeApi):
+    def delete_message(self, channel: str, ts: str) -> bool:
+        if ts == "1.0":
+            raise SlackSendError("削除に失敗（テスト）")
+        return super().delete_message(channel, ts)
+
+
+@pytest.mark.anyio
+async def test_purge_failure_forgets_only_deleted_posts(tmp_path: Path) -> None:
+    api = FailingDeleteApi()
+    conn = make(tmp_path, api, None, outbound=True, channel_map={ESCALATION_CHANNEL: C_ESC})
+    with_staff(conn)
+    await conn.tick()
+    item_id = escalate(conn)
+    await conn.tick()
+    conn.start_purge()
+    assert conn._purge_task is not None
+    await conn._purge_task
+    st = conn.status().purge
+    # 返信（2.0）は消せ、親（1.0）で失敗。親の控えは残す
+    assert st.error is not None and api.deleted == ["2.0"]
+    assert conn.pipeline.store.get(item_id).slack_ts == "1.0"
+    assert (C_ESC, "2.0") not in conn.pipeline.store.slack_posts()
+
+
+@pytest.mark.anyio
+async def test_nothing_is_mirrored_while_purging(tmp_path: Path) -> None:
+    api = FakeApi()
+    conn = make(tmp_path, api, None, outbound=True, channel_map={ESCALATION_CHANNEL: C_ESC})
+    with_staff(conn)
+    await conn.tick()
+    conn.purge_status.running = True
+    escalate(conn)
+    await conn.tick()
+    assert api.sent == []
+    conn.purge_status.running = False
+    await conn.tick()
+    assert len(api.sent) == 2
+
+
+def test_own_messages_pages_through_thread_replies() -> None:
+    class Client:
+        def conversations_history(self, **_: object) -> dict[str, object]:
+            return {"messages": [{"ts": "1.0", "user": "UBOT", "bot_id": "B1", "reply_count": 3}]}
+
+        def conversations_replies(self, *, cursor: str | None = None, **_: object) -> dict[str, object]:
+            if cursor is None:
+                msgs = [{"ts": "1.0", "user": "UBOT", "bot_id": "B1"}, {"ts": "1.1", "user": "UBOT", "bot_id": "B1"}]
+                return {"messages": msgs, "response_metadata": {"next_cursor": "p2"}}
+            return {"messages": [{"ts": "1.2", "user": "UBOT", "bot_id": "B1"}]}
+
+    api = SdkSlackApi.__new__(SdkSlackApi)
+    api.client = Client()  # type: ignore[assignment]
+    assert api.own_messages("C1", "UBOT") == [("1.1", "1.0"), ("1.2", "1.0"), ("1.0", None)]

@@ -147,6 +147,7 @@ export type EventKind =
   | 'error'
   | 'retry'
   | 'miss'
+  | 'reopen'
 export type Actor = 'system' | 'kev' | 'jev' | 'mock' | 'human' | 'connector'
 
 export interface OpsEvent {
@@ -467,6 +468,7 @@ export const ops = {
   note: (id: string, text: string) => call<Item>('POST', itemPath(id, 'note'), { text }),
   close: (id: string, category: string | null) => call<Item>('POST', itemPath(id, 'close'), { category }),
   retry: (id: string) => call<Item>('POST', itemPath(id, 'retry')),
+  reopen: (id: string) => call<Item>('POST', itemPath(id, 'reopen')),
   reportMiss: (id: string, type: PiiType, start: number, end: number) =>
     call<MissReport>('POST', itemPath(id, 'miss'), { type, start, end }),
   misses: (catchRate: number) => call<MissSummary>('GET', `/misses?catch=${catchRate}`),

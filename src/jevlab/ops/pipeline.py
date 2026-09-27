@@ -155,6 +155,9 @@ def no_reply_reason(item: Item, settings: Settings) -> str | None:
     返信不要の分類（お礼など）はいつも要らない。返信の要否を判定する分類（その他など）は、Jev の判定で決める。
     """
     label = category_label(item.category, settings)
+    if _needs_attention(item, settings):
+        # 強い不満や緊急の兆しがある件は、分類がお礼でも自動で完了にしない（誤分類を誰も見ないまま閉じないように）
+        return None
     if settings.auto_closes(item.category):
         return f"返信のいらない分類（{label}）"
     if settings.judges_reply(item.category):
@@ -163,6 +166,19 @@ def no_reply_reason(item: Item, settings: Settings) -> str | None:
         if p is not None and p < NO_REPLY_BELOW:
             return f"{label}のうち返信のいらない件（返信が要る確率 {p:.2f}）"
     return None
+
+
+def _needs_attention(item: Item, settings: Settings) -> bool:
+    """強い不満・緊急の兆しがあるか（エスカレーションの設定をオフにしていても見る）。"""
+    frustration = item.answers.get("frustration")
+    if frustration is not None:
+        p2 = frustration.probabilities.get("2")
+        if (p2 is not None and p2 >= settings.classify.strong_frustration_at) or (
+            p2 is None and frustration.prediction == 2
+        ):
+            return True
+    urgent = item.answers.get("urgent")
+    return urgent is not None and urgent.prediction is True
 
 
 def decide_route(item: Item, settings: Settings) -> tuple[Route, str]:
@@ -897,6 +913,18 @@ class Pipeline:
         item = self.store.update(item_id, lambda i: i.model_copy(update={"notes": [*i.notes, note]}))
         self.store.add_event(item_id, "note", "human", f"メモ: {note}")
         return item
+
+    def reopen(self, item_id: str) -> Item:
+        """自動で完了にした件（お礼など）を、振り分け済みに戻す。分類の修正は完了にするときに行う。"""
+        item = self.store.get(item_id)
+        if item.status != "closed" or not item.auto_closed:
+            raise ValueError(f"{item_id} は自動で完了にした件ではありません（状態: {item.status}）")
+        updated = self.store.update(
+            item_id,
+            lambda i: i.model_copy(update={"status": "routed", "auto_closed": False, "closed_at": None}),
+        )
+        self.store.add_event(item_id, "reopen", "human", "自動の完了を取り消して、振り分け済みに戻す")
+        return updated
 
     def close(self, item_id: str, category: str | None) -> Item:
         """エスカレーション・振り分け済みの件を、人が対応して完了にする。

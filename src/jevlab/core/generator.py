@@ -135,10 +135,17 @@ class ClaudeCliGenerator:
         if proc.stdin is None or proc.stdout is None or proc.stderr is None:
             raise GenerationError("claude -p の入出力を開けませんでした")
         final: GeneratedText | None = None
+        # stderr は並行して読み続ける（読まずにいると、出力が多いときにパイプが詰まって止まる）
+        err_task = asyncio.create_task(proc.stderr.read())
+        err = b""
         try:
-            proc.stdin.write(req.prompt.encode())
-            await proc.stdin.drain()
-            proc.stdin.close()
+            try:
+                proc.stdin.write(req.prompt.encode())
+                await proc.stdin.drain()
+                proc.stdin.close()
+            except (BrokenPipeError, ConnectionResetError):
+                # すぐに終了した（ログインしていない など）。理由は終了コードと stderr で知らせる
+                pass
             # 待ち時間は全体で数える。asyncio.timeout を yield をまたいで使うと読み手側の処理まで打ち切るため、1 行ずつ残り時間で待つ
             deadline = started + self.timeout_s
             while line := await asyncio.wait_for(proc.stdout.readline(), max(0.0, deadline - time.perf_counter())):
@@ -147,16 +154,24 @@ class ClaudeCliGenerator:
                     yield value
                 elif kind == "result" and isinstance(value, str):
                     final = parse_envelope(value, (time.perf_counter() - started) * 1000, self.model)
-            err = await asyncio.wait_for(proc.stderr.read(), max(0.0, deadline - time.perf_counter()))
-            await proc.wait()
+            await asyncio.wait_for(proc.wait(), max(0.0, deadline - time.perf_counter()))
+            err = await asyncio.wait_for(err_task, max(0.0, deadline - time.perf_counter()))
         except TimeoutError as e:
             raise GenerationError(f"claude -p が {self.timeout_s:.0f} 秒で応答しませんでした") from e
+        except (ValueError, asyncio.LimitOverrunError) as e:
+            raise GenerationError(f"claude -p の応答の 1 行が長すぎて読めません: {e}") from e
+        except OSError as e:
+            raise GenerationError(f"claude -p とのやり取りに失敗しました: {type(e).__name__}: {e}") from e
         finally:
-            # 途中で止めた（画面を閉じた・時間切れ）ときは、子プロセスを残さない
+            # 途中で止めた（画面を閉じた・時間切れ・中止）ときは、子プロセスを残さない
             if proc.returncode is None:
                 with contextlib.suppress(ProcessLookupError):
                     proc.kill()
                 await proc.wait()
+            if not err_task.done():
+                err_task.cancel()
+                with contextlib.suppress(asyncio.CancelledError, OSError):
+                    await err_task
         if proc.returncode != 0:
             raise GenerationError(
                 f"claude -p が失敗しました（終了コード {proc.returncode}）: {err.decode(errors='replace').strip()[:500]}"

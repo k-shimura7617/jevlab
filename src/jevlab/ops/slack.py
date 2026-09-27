@@ -84,8 +84,11 @@ class SlackApi(Protocol):
         """投稿にリアクションを付ける（付いていれば何もしない）。"""
         ...
 
-    def own_messages(self, channel: str, bot_user: str) -> list[str]:
-        """チャンネルにあるボット自身の投稿（スレッドの返信を含む）の ts を、返信を先にして返す。"""
+    def own_messages(self, channel: str, bot_user: str) -> list[tuple[str, str | None]]:
+        """チャンネルにあるボット自身の投稿（スレッドの返信を含む）を、返信を先にして返す。
+
+        (ts, 親の ts) の組。親の投稿なら親の ts は None。
+        """
         ...
 
     def delete_message(self, channel: str, ts: str) -> bool:
@@ -219,9 +222,19 @@ class SdkSlackApi:
             # チャンネルへの参加の知らせ（subtype: channel_join）などもボットのユーザーになるが、消せないので除く
             return isinstance(m, dict) and m.get("user") == bot_user and m.get("subtype") in _OWN_SUBTYPES
 
-        def collect() -> list[str]:
-            parents: list[str] = []
-            replies: list[str] = []
+        def thread_replies(parent: str) -> list[tuple[str, str | None]]:
+            out: list[tuple[str, str | None]] = []
+            cursor: str | None = None
+            while True:
+                res = self.client.conversations_replies(channel=channel, ts=parent, limit=200, cursor=cursor)
+                out += [(str(x["ts"]), parent) for x in res.get("messages") or [] if mine(x) and x.get("ts") != parent]
+                cursor = (res.get("response_metadata") or {}).get("next_cursor") or None
+                if not cursor:
+                    return out
+
+        def collect() -> list[tuple[str, str | None]]:
+            parents: list[tuple[str, str | None]] = []
+            replies: list[tuple[str, str | None]] = []
             cursor: str | None = None
             while True:
                 res = self.client.conversations_history(channel=channel, limit=200, cursor=cursor)
@@ -229,12 +242,9 @@ class SdkSlackApi:
                     if not isinstance(m, dict):
                         continue
                     if int(m.get("reply_count") or 0) > 0:
-                        thread = self.client.conversations_replies(channel=channel, ts=str(m["ts"]), limit=200)
-                        replies += [
-                            str(x["ts"]) for x in thread.get("messages") or [] if mine(x) and x.get("ts") != m.get("ts")
-                        ]
+                        replies += thread_replies(str(m["ts"]))
                     if mine(m):
-                        parents.append(str(m["ts"]))
+                        parents.append((str(m["ts"]), None))
                 cursor = (res.get("response_metadata") or {}).get("next_cursor") or None
                 if not cursor:
                     break
@@ -332,6 +342,12 @@ def link_text(item_id: str, settings: Settings, channel: str) -> str:
     return f"<{settings.slack.app_url.rstrip('/')}/ops/{page}?id={item_id}|画面で開く>"
 
 
+def _item_refs(items: list[Item]) -> set[tuple[str, str]]:
+    """件に控えた Slack の投稿（親と、そのほかの投稿）。控えを取る前に投稿したものも jevlab の投稿として扱う。"""
+    refs = {(i.slack_channel, i.slack_ts) for i in items if i.slack_channel and i.slack_ts}
+    return refs | {(c, ts) for i in items for c, ts in i.slack_more}
+
+
 def link_marker(item_id: str) -> str:
     """親の投稿を Slack 側で探すときの目印（画面へのリンクの一部。どの画面へのリンクでも一致する）。"""
     return f"?id={item_id}|"
@@ -347,8 +363,8 @@ def mention(member: StaffMember | None) -> str:
 def assign_line(item: Item, settings: Settings) -> str:
     """スレッドに書く、担当についての一言（メンション・お願い・確信度を 1 行ずつ）。
 
-    担当が決まっていればその人を、決まっていなければ振り分け担当（当番）をメンションする。
-    推定した担当は名前だけ書く（確信度の低い推定で本人を呼び出さないため）。
+    担当が決まっていれば（仮の割り当てを含む）その人をメンションし、自動の割り当てなら担当確信度を添える。
+    担当が決まっていなければ振り分け担当（当番）をメンションし、推定した担当は名前だけ書く。
     """
     staff = {s.id: s for s in settings.staff}
     if item.assignee:
@@ -458,6 +474,9 @@ class SlackConnector:
         self._loop = asyncio.get_running_loop()
         settings = self.pipeline.store.settings()
         await self._sync_inbound(settings.connectors.get("slack", False), settings.slack.inbound_channels)
+        if self.purge_status.running:
+            # 投稿を消している間は流さない（消している最中の投稿が消されずに残ったり、控えを忘れたりしないように）
+            return
         await self._mirror(settings)
         await self._follow(settings)
         await self._remind(settings)
@@ -489,6 +508,8 @@ class SlackConnector:
 
     async def _send(self, channel: str, text: str, thread_ts: str | None = None) -> str:
         ts = await asyncio.to_thread(self._api().post_message, channel, text, thread_ts)
+        # まとめて消すときに、jevlab の投稿だけを選べるよう控える
+        self.pipeline.store.add_slack_post(channel, ts)
         self.outbound.count += 1
         self._failures = 0
         return ts
@@ -668,6 +689,8 @@ class SlackConnector:
                 else ""
             )
             return f"対応完了（担当: {name}）{fixed}"
+        if event.kind == "reopen":
+            return "自動の完了を取り消しました"
         return None
 
     async def _remind(self, settings: Settings) -> None:
@@ -759,24 +782,35 @@ class SlackConnector:
 
     async def _purge(self, channels: list[str]) -> None:
         st = self.purge_status
+        store = self.pipeline.store
+        deleted: set[tuple[str, str]] = set()
         try:
             if not await self._ensure_bot_user() or self.bot_user is None:
                 raise SlackSendError("ボットのユーザーを確かめられません（トークンを確かめてください）")
             api = self._api()
-            targets = [(c, ts) for c in channels for ts in await asyncio.to_thread(api.own_messages, c, self.bot_user)]
+            ours = store.slack_posts() | _item_refs(store.items(limit=100_000))
+            targets: list[tuple[str, str]] = []
+            for c in channels:
+                for ts, parent in await asyncio.to_thread(api.own_messages, c, self.bot_user):
+                    # jevlab が投稿したもの（とそのスレッドの返信）だけを消す。同じボットのほかの用途の投稿は残す
+                    if (c, ts) in ours or (parent is not None and (c, parent) in ours):
+                        targets.append((c, ts))
             st.total = len(targets)
             for channel, ts in targets:
                 if await asyncio.to_thread(api.delete_message, channel, ts):
                     st.deleted += 1
+                    deleted.add((channel, ts))
                 else:
                     log.info("Slack の %s の投稿 %s は消せないので飛ばしました", channel, ts)
                     st.skipped += 1
-            # 消した投稿への返信・✅ を付けに行かないよう、件に控えた Slack の投稿を忘れる
-            self.pipeline.store.clear_slack_refs()
         except SlackSendError as e:
             log.warning("Slack の投稿を消せませんでした: %s", e)
             st.error = str(e)
         finally:
+            # 消せた投稿の分だけ、件の控えを忘れる（返信や ✅ を付けに行かないように）。途中で失敗しても、消せた分は忘れる
+            if deleted:
+                store.clear_slack_refs(deleted)
+                store.forget_slack_posts(deleted)
             st.running = False
             st.finished_at = datetime.now(UTC).isoformat(timespec="seconds")
 

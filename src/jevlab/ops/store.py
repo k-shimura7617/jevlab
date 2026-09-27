@@ -69,6 +69,12 @@ CREATE TABLE IF NOT EXISTS audit_exports (
   conditions TEXT NOT NULL,
   rows INTEGER NOT NULL
 );
+-- jevlab が実際の Slack に投稿したメッセージ（まとめて消すときに、同じボットのほかの投稿を消さないため）
+CREATE TABLE IF NOT EXISTS slack_posts (
+  channel TEXT NOT NULL,
+  ts TEXT NOT NULL,
+  PRIMARY KEY (channel, ts)
+);
 CREATE TABLE IF NOT EXISTS settings (
   key TEXT PRIMARY KEY,
   value TEXT NOT NULL
@@ -332,26 +338,48 @@ class Store:
         sql = "SELECT * FROM events" + (f" WHERE {' AND '.join(where)}" if where else "") + " ORDER BY id LIMIT ?"
         return self._events(sql, (*args, limit))
 
-    def clear_slack_refs(self) -> int:
-        """件に控えた実際の Slack の投稿（親・そのほかの投稿）を忘れる。Slack 側の投稿を消した後に使う。"""
+    def clear_slack_refs(self, deleted: set[tuple[str, str]] | None = None) -> int:
+        """件に控えた実際の Slack の投稿（親・そのほかの投稿）を忘れる。Slack 側の投稿を消した後に使う。
+
+        deleted を渡すと、実際に消せた投稿（チャンネル, ts）の分だけ忘れる（途中で失敗したとき、残った投稿の控えを消さない）。
+        """
         changed = 0
+        gone_parent: dict[str, object] = {
+            "slack_channel": None,
+            "slack_ts": None,
+            "slack_parent_pending": False,
+            "slack_notified": False,
+            "slack_reminded": False,
+        }
         for item in self.items(limit=100_000):
-            if item.slack_ts or item.slack_more or item.slack_parent_pending:
-                self.update(
-                    item.id,
-                    lambda i: i.model_copy(
-                        update={
-                            "slack_channel": None,
-                            "slack_ts": None,
-                            "slack_more": [],
-                            "slack_parent_pending": False,
-                            "slack_notified": False,
-                            "slack_reminded": False,
-                        }
-                    ),
-                )
-                changed += 1
+            if deleted is None:
+                if not (item.slack_ts or item.slack_more or item.slack_parent_pending):
+                    continue
+                update = {**gone_parent, "slack_more": []}
+            else:
+                parent_gone = item.slack_ts is not None and (item.slack_channel or "", item.slack_ts) in deleted
+                more = [ref for ref in item.slack_more if (ref[0], ref[1]) not in deleted]
+                if not parent_gone and more == item.slack_more:
+                    continue
+                update = {**(gone_parent if parent_gone else {}), "slack_more": more}
+            self.update(item.id, lambda i, u=update: i.model_copy(update=u))
+            changed += 1
         return changed
+
+    # ---- 実際の Slack に投稿したメッセージ ----
+
+    def add_slack_post(self, channel: str, ts: str) -> None:
+        with self._tx() as db:
+            db.execute("INSERT OR IGNORE INTO slack_posts(channel, ts) VALUES(?, ?)", (channel, ts))
+
+    def slack_posts(self) -> set[tuple[str, str]]:
+        with self._lock:
+            rows = self._db.execute("SELECT channel, ts FROM slack_posts").fetchall()
+        return {(str(r["channel"]), str(r["ts"])) for r in rows}
+
+    def forget_slack_posts(self, pairs: set[tuple[str, str]]) -> None:
+        with self._tx() as db:
+            db.executemany("DELETE FROM slack_posts WHERE channel = ? AND ts = ?", list(pairs))
 
     def add_audit_export(self, conditions: str, rows: int) -> None:
         with self._tx() as db:
