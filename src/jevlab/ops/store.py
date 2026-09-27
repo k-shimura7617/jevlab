@@ -509,6 +509,11 @@ class Store:
             db.execute("DELETE FROM posts")
             db.execute("DELETE FROM pii_misses")
             db.execute("DELETE FROM sqlite_sequence WHERE name IN ('events', 'posts', 'pii_misses')")
+            # 投稿・経過の番号は 1 から振り直されるので、番号で覚えている転送の位置（Slack など）も 0 に戻す。
+            # 戻さないと、空にした後の件数が前の位置に届くまで、新しい投稿が「送信済み」と見なされて飛ばされる
+            db.execute(
+                "UPDATE settings SET value = '0' WHERE key LIKE 'meta:%.last_post' OR key LIKE 'meta:%.last_event'"
+            )
         self.update_settings(
             lambda s: s.model_copy(update={"simulator": s.simulator.model_copy(update={"playing": False, "cursor": 0})})
         )
