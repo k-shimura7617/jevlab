@@ -681,7 +681,7 @@ async def get_settings(pipeline: PipelineDep) -> Settings:
 def _align_categories(prev: Settings, new: Settings, items: list[Item]) -> Settings:
     """分類の編集に合わせて、ほかの設定を整える。
 
-    - 使った分類は削除させない（過去の件がキーでつながっているため。「使う」を外して廃止にする）
+    - 使った分類は削除させない（過去の件がキーでつながっているため。状態を「停止」にする）
     - チャンネル名を変えた分類は、Slack の割り当ても新しい名前に移す
     - 廃止・削除した分類の閾値を消す
     """
@@ -690,7 +690,7 @@ def _align_categories(prev: Settings, new: Settings, items: list[Item]) -> Setti
     if removed & used:
         names = "・".join(prev.category_label(k) for k in sorted(removed & used))
         raise HTTPException(
-            status_code=422, detail=f"{names}は使った件があるので削除できません。「使う」を外して廃止にしてください"
+            status_code=422, detail=f"{names}は使った件があるので削除できません。状態を「停止」にしてください"
         )
     _check_category_channels(new)
     moves = {

@@ -35,7 +35,7 @@ def test_settings_validation() -> None:
         Settings(categories=[*base.categories, base.categories[0]])
     with pytest.raises(ValidationError, match="1 つ以上"):
         Settings(categories=[c.model_copy(update={"active": False}) for c in base.categories])
-    with pytest.raises(ValidationError, match="受け皿"):
+    with pytest.raises(ValidationError, match="どれにも当てはまらない"):
         Settings(
             fallback_category="thanks",
             categories=[c.model_copy(update={"active": c.key != "thanks"}) for c in base.categories],
