@@ -353,6 +353,14 @@ def link_marker(item_id: str) -> str:
     return f"?id={item_id}|"
 
 
+def _with_call(call: str | None, body: str) -> str:
+    """投稿の本文に担当への一言を添える。メンション → 本文 → 空行 → お願い・確信度 の順。"""
+    if not call:
+        return body
+    first, _, rest = call.partition("\n")
+    return f"{first}\n{body}\n\n{rest}" if rest else f"{first}\n{body}"
+
+
 def mention(member: StaffMember | None) -> str:
     """Slack のユーザー ID があればメンション、なければ名前だけ。"""
     if member is None:
@@ -594,7 +602,8 @@ class SlackConnector:
     ) -> Item:
         """件の親の投稿（件の詳細へのリンクつき）を送り、その ts を件に残す。
 
-        head は投稿の先頭に書く担当へのメンション（通知の冒頭に出るように）。
+        head は担当への一言（assign_line）。メンションだけを先頭に置き（通知の冒頭に出るように）、
+        お願いと確信度は本文のあとに空行を挟んで書く。
 
         親の送信が応答なく終わった（投稿できたか分からない）ときは、やり直す前に Slack 側を探して二重に投稿しない。
         """
@@ -605,7 +614,7 @@ class SlackConnector:
         if ts is None:
             store.update(item.id, lambda i: i.model_copy(update={"slack_parent_pending": True}))
             body = f"{post_text(post, item)}\n{link_text(item.id, settings, post.channel)}"
-            ts = await self._send(channel, f"{head}\n{body}" if head else body)
+            ts = await self._send(channel, _with_call(head, body))
         return store.update(
             item.id,
             lambda i: i.model_copy(update={"slack_channel": channel, "slack_ts": ts, "slack_parent_pending": False}),
