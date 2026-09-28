@@ -37,6 +37,8 @@ jevlab は、TypeSafe の System One モデル **Jev**（と互換のローカ�
 | [handoff.md](handoff.md) | 別セッションへの引き継ぎ | 別セッションの Claude Code |
 | [handoff-prompt.md](handoff-prompt.md) | 新しいセッションに貼る引き渡しのプロンプト | 利用者 |
 | [research/](research/) | 調査メモと提案 | 開発者 |
+| [guides/jevlab-features.html](guides/jevlab-features.html) | 機能ガイド（できること・おすすめの点・ユースケース・実測。画面写真つき、1 枚の HTML） | 導入を検討する企業・説明する人 |
+| [guides/jevlab-tech.html](guides/jevlab-tech.html) | 技術ガイド（Jev と Kev とは、構成図、用語と仕組み。1 枚の HTML） | 導入を検討する企業・開発者 |
 
 ## ドキュメントの運用
 
